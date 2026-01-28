@@ -1,0 +1,35 @@
+# Ignore large data files (crucial for git)
+data/expression_data/*.h5
+data/expression_data/*.hdf5
+data/raw_sequences/*.fasta
+data/processed_enzymes/*.fasta
+data/processed_enzymes/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
