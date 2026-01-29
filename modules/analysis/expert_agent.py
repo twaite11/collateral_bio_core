@@ -70,10 +70,14 @@ class ExpertAgent:
     def load_expert_prompt(self):
         """Load the expert persona prompt from file"""
         if not os.path.exists(self.prompt_file):
+            print(f"Warning: Prompt file not found: {self.prompt_file}")
             return ""
         try:
             with open(self.prompt_file, 'r', encoding='utf-8') as f:
-                return f.read()
+                prompt_content = f.read()
+                if prompt_content:
+                    print(f"[OK] Loaded expert persona from {self.prompt_file}")
+                return prompt_content
         except Exception as e:
             print(f"Warning: Could not load prompt file: {e}")
             return ""
@@ -91,12 +95,16 @@ class ExpertAgent:
         expert_prompt = self.load_expert_prompt()
         
         # Build the analysis prompt
+        # Include Valid Cut Sites if available
+        valid_cut_sites = candidate.get('Valid_Cut_Sites', candidate.get('Cut_Sites', 'N/A'))
+        
         prompt = f"""{expert_prompt}
 
 TARGET DATA:
 - Target Fusion: {candidate.get('Target_Fusion', 'Unknown')}
 - Associated Disease: {candidate.get('Associated_Disease', 'Unknown')}
 - Patient Count: {candidate.get('Patient_Count', 0)}
+- Valid Cas13d Cut Sites (Score): {valid_cut_sites}
 - Safety Risks: {', '.join(risks) if risks else 'None identified'}
 
 Please analyze this target and return your evaluation as JSON with the following structure:
@@ -132,7 +140,12 @@ Please analyze this target and return your evaluation as JSON with the following
             print(f"Response text: {response.text if 'response' in locals() else 'N/A'}")
             return {}
         except Exception as e:
-            print(f"Error calling Gemini API: {e}")
+            error_msg = str(e)
+            if "429" in error_msg or "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+                print(f"API quota/rate limit exceeded. Free tier allows 20 requests/day.")
+                print(f"  -> Skipping AI analysis for this candidate")
+            else:
+                print(f"Error calling Gemini API: {e}")
             return {}
 
     def run(self, max_candidates=10):
@@ -167,12 +180,15 @@ Please analyze this target and return your evaluation as JSON with the following
             })
             
             # Rate limiting: wait between API calls to avoid hitting free tier limits
+            # Free tier: 20 requests/day, 5-15 requests/minute
             if i < len(candidates):
-                time.sleep(2)  # Increased delay for free tier (5-15 RPM limit)
+                time.sleep(5)  # Increased delay for free tier to avoid quota exhaustion
             
         # Here we would call generate_dashboard(results) - see previous turn for HTML logic
         print(f"\n[SUCCESS] Analysis Complete. Processed {len(results)} candidates.")
         return results
 
 if __name__ == "__main__":
-    ExpertAgent("lead_candidates.csv", "prompts/expert_persona.txt").run()
+    # Run with 5 candidates to test, increase max_candidates for full analysis
+    agent = ExpertAgent("lead_candidates.csv", "prompts/expert_persona.txt")
+    agent.run(max_candidates=5)
