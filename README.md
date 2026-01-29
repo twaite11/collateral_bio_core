@@ -123,6 +123,10 @@ The platform requires specific data files in the `data/` directory:
 
 ## 📋 Workflow
 
+**Full command walkthrough** (matrix + fusion CSVs): see **[PIPELINE.md](PIPELINE.md)** for exact commands to run the full pipeline step-by-step or via `python run_pipeline.py`.
+
+---
+
 ### Step 1: Mine the Warheads (Enzymes)
 
 Discover novel Cas13d variants from public sequence databases:
@@ -140,23 +144,39 @@ The core discovery engine screens enzymes against fusion targets, evaluating:
 - **Disease Link** - Cancer type association
 - **Druggability** - PFS rule validation (cut site analysis)
 
-**Validation Mode (Known Targets):**
+**Known fusions (default):** uses `data/known_fusions.csv` and `data/KB_and_Pub_Recur_per_cancer.csv`.
 ```bash
-# Ensure matchmaker.py points to known_fusions.csv
 python modules/matchmaker.py
 ```
 
-**Discovery Mode (Novel Targets):**
-```bash
-# Edit modules/matchmaker.py: change TARGET_FILE to "data/novel_fusions.csv"
-python modules/matchmaker.py
-```
+**Novel fusions:** set `TARGET_FUSIONS_CSV=novel_fusions.csv`, then run as above.
 
 **Output:** `lead_candidates.csv` containing ranked therapeutic enzyme-target pairs
 
-### Step 3: Safety Audit
+### Step 3: AI CSO Agent & Cancer-Only Filter
 
-Validate lead candidates by profiling parent gene expression across healthy tissues:
+The expert agent **filters** lead candidates so the **final output includes only fusions that are absent in normal healthy tissues and present in cancer samples**. It then runs safety checks and AI commentary.
+
+**Requirements:** `data/expression_data/human_matrix.h5` (ARCHS4) and `GEMINI_API_KEY` in `.env`.
+
+```bash
+python modules/analysis/expert_agent.py
+```
+
+**Output:**
+- `dashboard.html` – Ranked candidates (cancer-only, absent in normal)
+- `lead_candidates_filtered.csv` – Filtered leads in CSV form
+
+**Env options:**  
+- `NORMAL_MAX_TPM` (default `1.0`), `CANCER_MIN_TPM` (default `1.0`): exclusion thresholds.  
+- `MAX_CANDIDATES` (default: unset = **all**): max transcript rows to search; increase or leave unset to avoid missing hits.  
+- `BATCH_SIZE` (default `200`): rows per batch when scanning.  
+
+Fusions are **excluded** if either parent gene is expressed above `NORMAL_MAX_TPM` in normal tissues or below `CANCER_MIN_TPM` in cancer (when cancer data exists). The agent processes candidates in batches; if none in a batch pass the no-normal filter, it **keeps searching** the next batch until it finds hits or exhausts the file.
+
+### Step 4: Safety Audit (optional)
+
+Validate a specific gene with the safety profiler:
 
 ```bash
 # Edit the script to audit your specific gene
@@ -197,7 +217,8 @@ collateral-bio/
 │   └── logger.py                # Logging utilities
 ├── notebooks/                   # For visual exploration
 │   └── 01_candidate_viz.ipynb
-└── lead_candidates.csv          # Final output: Ranked therapeutic pairs
+├── lead_candidates.csv          # Matchmaker output (pre-filter)
+└── lead_candidates_filtered.csv # Final output: Cancer-only, absent-in-normal leads
 ```
 
 ---

@@ -3,3 +3,5 @@ pandas==2.1.0
 h5py==3.9.0
 numpy==1.26.0
 jupyterlab
+google-generativeai>=0.8.0
+python-dotenv>=1.0.0
