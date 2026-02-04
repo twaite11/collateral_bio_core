@@ -4,6 +4,20 @@
 
 ---
 
+<p align="center">
+  <marquee behavior="scroll" direction="left" scrollamount="4" style="background: linear-gradient(90deg, #0d1117 0%, #161b22 50%, #0d1117 100%); padding: 10px 0; border-radius: 4px; font-family: monospace; font-size: 14px;">
+    <strong>Python 3.8+</strong> · <strong>BioPython</strong> · <strong>Pandas</strong> · <strong>NumPy</strong> · <strong>h5py</strong> · <strong>ARCHS4</strong> · <strong>NCBI Entrez</strong> · <strong>ESM-2</strong> · <strong>Transformers</strong> · <strong>PyTorch</strong> · <strong>Google Gemini</strong> · <strong>JupyterLab</strong> · <strong>SQLite</strong> · <strong>Ollama/Llama</strong> · <strong>ChimerDB</strong> · <strong>TCGA</strong>
+  </marquee>
+</p>
+
+<div align="center">
+
+**Tech Stack Bar:** Python · BioPython · Pandas · NumPy · h5py · ARCHS4 · NCBI Entrez · ESM-2 · Transformers · PyTorch · Google Gemini · JupyterLab · SQLite · Ollama/Llama · ChimerDB · TCGA
+
+</div>
+
+---
+
 ## 🎯 Mission
 
 **Collateral Bio** is pioneering the development of precision cancer therapeutics through novel Cas13d enzyme discovery. Our mission is to identify and validate high-collateral Cas13d variants capable of targeting cancer-specific fusion RNAs, creating a "suicide switch" mechanism that induces apoptosis specifically in tumor cells while preserving healthy tissue.
@@ -12,72 +26,138 @@ We combine computational biology, machine learning, and high-throughput screenin
 
 ---
 
-## 🏗️ System Architecture
-
-The Collateral Bio platform operates as an integrated discovery pipeline:
+## 🏗️ System Architecture & Logic Flow
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    COLLATERAL BIO PLATFORM                  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         COLLATERAL BIO PLATFORM                                   │
+└─────────────────────────────────────────────────────────────────────────────────┘
 
-┌──────────────────────┐         ┌──────────────────────┐
-│   THE ARMORY         │         │   THE VAULT          │
-│   (Enzyme Mining)    │         │   (Target Discovery) │
-│                      │         │                      │
-│  • NCBI Database     │         │  • ChimerDB          │
-│  • Metagenomes       │         │  • TCGA Data         │
-│  • Public Sequences  │         │  • Fusion RNAs       │
-└──────────┬───────────┘         └──────────┬───────────┘
-           │                                 │
-           v                                 v
-    ┌──────────────┐                 ┌──────────────┐
-    │ Cas13d       │                 │ Fusion RNA   │
-    │ Variants     │                 │ Targets      │
-    └──────┬───────┘                 └──────┬───────┘
-           │                                 │
-           └────────────┬────────────────────┘
-                        │
-                        v
-            ┌───────────────────────┐
-            │   THE MATCHMAKER      │
-            │   (Virtual Wet Lab)   │
-            │                       │
-            │  • Druggability       │
-            │  • Safety Profiling   │
-            │  • Market Analysis    │
-            └───────────┬───────────┘
-                        │
-                        v
-            ┌───────────────────────┐
-            │  lead_candidates.csv  │
-            │  (Series Seed Assets) │
-            └───────────────────────┘
+┌─────────────────────────────────────────────┐   ┌─────────────────────────────────────────────┐
+│         THE ARMORY (Enzyme Mining)           │   │        THE VAULT (Target Discovery)         │
+├─────────────────────────────────────────────┤   ├─────────────────────────────────────────────┤
+│  ncbi_miner.py      → NCBI Protein search    │   │  fusion_metadata.py  → Fusion → TCGA cancers│
+│  sra_scout.py       → WGS + BioProject       │   │  specificity_filter  → Tissue specificity   │
+│  autonomous_prospector → AI-driven deep mine │   │  mutation_loader     → VCF mutation mining  │
+│  deep_miner_utils   → ESM-2 + CRISPR detect  │   │  archs4_loader       → Expression + safety  │
+│  hepn_filter        → HEPN motif validation  │   │  run_targeting       → ARCHS4 query test    │
+│  debug_sra          → NCBI connectivity test │   │                                             │
+└──────────────────────┬──────────────────────┘   └──────────────────────┬──────────────────────┘
+                       │                                                  │
+                       ▼                                                  ▼
+              ┌────────────────┐                                 ┌────────────────┐
+              │ Cas13d Variants│                                 │ Fusion Targets │
+              │ (FASTA / deep) │                                 │ (Specificity   │
+              │                │                                 │  filtered)     │
+              └────────┬───────┘                                 └────────┬───────┘
+                       │                                                  │
+                       └────────────────────┬─────────────────────────────┘
+                                            │
+                                            ▼
+                               ┌────────────────────────┐
+                               │   THE MATCHMAKER       │
+                               │   (modules/matchmaker) │
+                               │                        │
+                               │  • Enzyme × Fusion     │
+                               │  • PFS rule (cut sites)│
+                               │  • Disease mapping     │
+                               └────────────┬───────────┘
+                                            │
+                                            ▼
+                               ┌────────────────────────┐
+                               │  lead_candidates.csv   │
+                               └────────────┬───────────┘
+                                            │
+                                            ▼
+                               ┌────────────────────────┐
+                               │   EXPERT AGENT         │
+                               │   (analysis/expert_    │
+                               │    agent.py)           │
+                               │                        │
+                               │  • ARCHS4 safety       │
+                               │  • Organ-specific      │
+                               │  • Gemini AI verdict   │
+                               └────────────┬───────────┘
+                                            │
+                                            ▼
+                               ┌────────────────────────┐
+                               │ lead_candidates_       │
+                               │ filtered.csv           │
+                               │ dashboard.html         │
+                               └────────────────────────┘
 ```
+
+---
+
+## 📋 Detailed Logic & Module Flow
+
+### 1. Enzyme Mining (The Armory)
+
+| Module | Purpose | Logic |
+|--------|---------|-------|
+| **ncbi_miner** | Annotated Cas13d from NCBI Protein | `Entrez.esearch(db="protein")` → fetch FASTA → save `search_YYYYMMDD.fasta` |
+| **sra_scout** | Unannotated metagenomes (WGS) | Normalizes query, tries `wgs[Prop]` → fallback broader search → BioProject elink; 6-frame translate, HEPN `R.{4,6}H` + topology (100–600 aa spacing); saves `undiscovered_cas13d_*.fasta` |
+| **autonomous_prospector** | AI-driven continuous mining | LLM formulates env query → SRAScout.search_wgs → semantic filter (LLM picks top datasets) → DeepEngine (ESM-2) + NeighborhoodWatch (CRISPR) → deep_mine ORFs 800–1100 aa; SQLite `visited_ids` to avoid re-processing; saves `deep_hits_*.fasta` |
+| **deep_miner_utils** | Deep learning engine | **DeepEngine**: ESM-2 35M, cosine similarity vs Cas13d reference; **NeighborhoodWatch**: CRISPR array detection (24/28/32 bp chunks, 2–3 repeats) |
+| **hepn_filter** | HEPN motif validation | Scans FASTA for ≥2 `R.{4}H` motifs → retains valid enzymes |
+| **debug_sra** | Connectivity check | Tests NCBI fetch with known ID (E. coli) to verify network + translation |
+
+### 2. Target Discovery (The Vault)
+
+| Module | Purpose | Logic |
+|--------|---------|-------|
+| **fusion_metadata** | Fusion → cancers mapping | Loads `KB_and_Pub_Recur_per_cancer.csv` + novel matrix; builds `fusion → [TCGA]`; `TCGA_TO_ORGAN` maps cancer codes to ARCHS4 keywords |
+| **specificity_filter** | High-specificity targets | Loads disease matrix (rows=cancer, cols=fusion); keeps fusions in ≤`max_tissue_types` (default 3); outputs `high_specificity_targets.csv` |
+| **mutation_loader** | VCF mutation mining | Parses VCF for gene-specific mutations (e.g. KRAS G12C) for validation |
+| **archs4_loader** | Expression & safety | HDF5 human_matrix; `get_gene_expression`, `get_gene_expression_normal_vs_cancer`, `fusion_absent_in_normal_present_in_cancer`; organ-specific mode uses enrichment factor |
+
+### 3. Matchmaker
+
+- Loads enzymes (FASTA or mock) and targets (`high_specificity_targets.csv` or `known_fusions.csv`)
+- Disease map from `KB_and_Pub_Recur_per_cancer.csv` or `disease_matrix_*.csv` if no `Primary_Disease`
+- Screens enzyme × target; PFS rule (no G at 3′); outputs `lead_candidates.csv`
+
+### 4. Expert Agent
+
+- Loads `lead_candidates.csv`, filters by `Associated_Disease`
+- Groups by (Target_Fusion, Associated_Disease) to minimize API calls
+- ARCHS4: organ-specific enrichment or global absent-in-normal
+- Gemini AI verdict (GO / NO-GO / HOLD), screening strategy
+- Outputs `lead_candidates_filtered.csv`
 
 ---
 
 ## 🛠️ Technology Stack
 
-### Core Technologies
-- **Python 3.8+** - Primary development language
-- **BioPython** - NCBI Entrez API integration, sequence parsing, FASTA handling
-- **Pandas** - Data manipulation and analysis for fusion targets and expression data
-- **NumPy** - Numerical computations and matrix operations
-- **h5py** - ARCHS4 expression database access (HDF5 format)
-- **JupyterLab** - Interactive data exploration and visualization
-- **openpyxl** - Excel file processing for ChimerDB data extraction
+### Core
+
+- **Python 3.8+** – Primary language
+- **BioPython** – NCBI Entrez, SeqIO, FASTA
+- **Pandas** – Fusion targets, expression, matrix ops
+- **NumPy** – Numerical ops
+- **h5py** – ARCHS4 HDF5
+- **JupyterLab** – Exploration
+- **openpyxl** – ChimerDB Excel
+- **python-dotenv** – `.env` config
+
+### Deep Learning (Autonomous Prospector)
+
+- **PyTorch** – ESM-2
+- **Transformers** – `facebook/esm2_t12_35M_UR50D`
+- **requests** – Ollama/local LLM API
+
+### AI & Data
+
+- **Google Gemini** – Expert agent
+- **Ollama / Llama** – Local LLM for prospector (optional)
+- **SQLite** – Prospector history & visited IDs
 
 ### Data Sources
-- **NCBI Protein Database** - Enzyme sequence mining
-- **ChimerDB** - Fusion RNA target database
-- **ARCHS4** - Human tissue expression atlas (safety profiling)
-- **TCGA** - Cancer genomics data integration
 
-### Infrastructure
-- **Git** - Version control and IP tracking
-- **Virtual Environments** - Dependency isolation
-- **HDF5** - Efficient storage of large expression matrices
+- **NCBI** – Protein, Nucleotide, BioProject
+- **ARCHS4** – Human expression
+- **ChimerDB** – Fusion RNAs
+- **TCGA** – Cancer codes
 
 ---
 
@@ -85,102 +165,93 @@ The Collateral Bio platform operates as an integrated discovery pipeline:
 
 ### Prerequisites
 
-Ensure you have **Python 3.8+** installed on your system.
+```bash
+python -m venv venv
+# Windows: venv\Scripts\activate
+# macOS/Linux: source venv/bin/activate
+pip install -r requirements.txt
+```
+
+For **Autonomous Prospector** (optional):
 
 ```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On macOS/Linux:
-source venv/bin/activate
-
-# On Windows:
-venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+pip install torch transformers requests
 ```
 
 ### Data Setup
 
-The platform requires specific data files in the `data/` directory:
+| File | Description |
+|------|-------------|
+| `known_fusions.csv` | Validation targets |
+| `novel_fusions.csv` | Discovery targets |
+| `disease_matrix_known.csv` / `KB_and_Pub_Recur_per_cancer.csv` | Fusion × cancer matrix |
+| `data/expression_data/human_matrix.h5` | ARCHS4 (download from [ARCHS4](https://maayanlab.cloud/archs4/)) |
 
-| File Name | Description | Source |
-|-----------|-------------|--------|
-| `known_fusions.csv` | Validation set of proven targets (e.g., TMPRSS2-ERG) | Extracted from ChimerDB (HRS_Recurrent_known) |
-| `novel_fusions.csv` | Discovery set of novel targets (e.g., SPSB4-ACPL2) | Extracted from ChimerDB (HRS_Recurrent_novel) |
-| `disease_matrix_known.csv` | Disease mapping: fusions to cancer types | Extracted from ChimerDB (KB_and_Pub_Recur) |
-| `human_matrix.h5` | Safety map: expression across 50k+ tissues | Download from [ARCHS4](https://maayanlab.cloud/archs4/) |
+Regenerate CSVs from Excel:
 
-> **Note:** If starting fresh with the raw Excel file (`Recurrent_table.xlsx`), run:
-> ```bash
-> python utils/split_excel.py
-> ```
-> This will auto-generate the required CSV files.
+```bash
+python utils/split_excel.py
+```
 
 ---
 
-## 📋 Workflow
+## 📂 Workflow Commands
 
-**Full command walkthrough** (matrix + fusion CSVs): see **[PIPELINE.md](PIPELINE.md)** for exact commands to run the full pipeline step-by-step or via `python run_pipeline.py`.
+### Step 1: Mine Enzymes
 
----
-
-### Step 1: Mine the Warheads (Enzymes)
-
-Discover novel Cas13d variants from public sequence databases:
-
+**NCBI Protein (annotated):**
 ```bash
 python -c "from modules.mining.ncbi_miner import EnzymeMiner; EnzymeMiner().search_and_fetch('Cas13d')"
 ```
 
-**Output:** Timestamped FASTA files saved to `data/raw_sequences/`
+**SRA Scout (WGS metagenomes):**
+```bash
+python -c "
+from modules.mining.sra_scout import SRAScout
+scout = SRAScout()
+ids = scout.search_wgs('hydrothermal vent metagenome', max_records=50)
+candidates = scout.fetch_and_mine(ids)
+scout.save_discoveries(candidates)
+"
+```
 
-### Step 2: The Matchmaker (Simulation)
+**Autonomous Prospector (AI + ESM-2):**
+```bash
+# Requires: torch, transformers, LLM_LOCAL_URL (Ollama) or LLM_PROVIDER
+python modules/mining/autonomous_prospector.py
+```
 
-The core discovery engine screens enzymes against fusion targets, evaluating:
-- **Patient Count** - Market size validation
-- **Disease Link** - Cancer type association
-- **Druggability** - PFS rule validation (cut site analysis)
+**Debug NCBI:**
+```bash
+python modules/mining/debug_sra.py
+```
 
-**Known fusions (default):** uses `data/known_fusions.csv` and `data/KB_and_Pub_Recur_per_cancer.csv`.
+### Step 2: Specificity Filter (optional)
+
+```bash
+python modules/targeting/specificity_filter.py
+# Uses disease_matrix_novel.csv → data/high_specificity_targets.csv
+```
+
+### Step 3: Matchmaker
+
 ```bash
 python modules/matchmaker.py
+# Uses high_specificity_targets.csv if present, else known_fusions.csv
 ```
 
-**Novel fusions:** set `TARGET_FUSIONS_CSV=novel_fusions.csv`, then run as above.
-
-**Output:** `lead_candidates.csv` containing ranked therapeutic enzyme-target pairs
-
-### Step 3: AI CSO Agent & Cancer-Only Filter
-
-The expert agent **filters** lead candidates so the **final output includes only fusions that are absent in normal healthy tissues and present in cancer samples**. It then runs safety checks and AI commentary.
-
-**Requirements:** `data/expression_data/human_matrix.h5` (ARCHS4) and `GEMINI_API_KEY` in `.env`.
+### Step 4: Expert Agent
 
 ```bash
+# .env: GEMINI_API_KEY
 python modules/analysis/expert_agent.py
+# → lead_candidates_filtered.csv
 ```
 
-**Output:**
-- `dashboard.html` – Ranked candidates (cancer-only, absent in normal)
-- `lead_candidates_filtered.csv` – Filtered leads in CSV form
-
-**Env options:**  
-- `NORMAL_MAX_TPM` (default `1.0`), `CANCER_MIN_TPM` (default `1.0`): exclusion thresholds.  
-- `MAX_CANDIDATES` (default: unset = **all**): max transcript rows to search; increase or leave unset to avoid missing hits.  
-- `BATCH_SIZE` (default `200`): rows per batch when scanning.  
-
-Fusions are **excluded** if either parent gene is expressed above `NORMAL_MAX_TPM` in normal tissues or below `CANCER_MIN_TPM` in cancer (when cancer data exists). The agent processes candidates in batches; if none in a batch pass the no-normal filter, it **keeps searching** the next batch until it finds hits or exhausts the file.
-
-### Step 4: Safety Audit (optional)
-
-Validate a specific gene with the safety profiler:
+### Step 5: ARCHS4 Query Test
 
 ```bash
-# Edit the script to audit your specific gene
-python modules/targeting/safety_profiler.py
+python run_targeting.py
 ```
 
 ---
@@ -188,71 +259,75 @@ python modules/targeting/safety_profiler.py
 ## 📂 Project Structure
 
 ```
-collateral-bio/
-├── .gitignore                   # Ignore large data files (crucial for git)
-├── README.md                    # This file
-├── requirements.txt             # Python dependencies
-├── main.py                      # Central command CLI
+collateral_bio_core/
+├── README.md
+├── PIPELINE.md
+├── requirements.txt
+├── run_targeting.py           # ARCHS4 loader test
+├── main.py
 ├── data/
-│   ├── raw_sequences/           # Mined FASTA files (IP Origin)
-│   ├── processed_enzymes/       # Filtered Cas13d candidates
-│   └── expression_data/         # ARCHS4 human_matrix.h5 (Excluded from Git)
+│   ├── raw_sequences/         # Mined FASTA
+│   ├── expression_data/       # human_matrix.h5
+│   ├── high_specificity_targets.csv
+│   ├── known_fusions.csv, novel_fusions.csv
+│   ├── disease_matrix_known.csv, disease_matrix_novel.csv
+│   └── KB_and_Pub_Recur_per_cancer.csv
 ├── modules/
-│   ├── __init__.py
-│   ├── mining/                  # ENZYME DISCOVERY
-│   │   ├── __init__.py
-│   │   ├── ncbi_miner.py        # The Clean Room scraper
-│   │   └── hepn_filter.py       # The "Scissors" detector
-│   ├── targeting/               # TARGET DISCOVERY
-│   │   ├── __init__.py
-│   │   ├── archs4_loader.py     # The Binary Expression Finder
-│   │   ├── chimerdb_loader.py   # Fusion RNA loader
-│   │   └── ccle_filter.py       # Cancer cell line filter
-│   ├── discovery/               # DISCOVERY MODULES
-│   │   └── fusion_caller.py     # Fusion detection
-│   └── matchmaker.py            # CORE: Enzyme-Target Matching Engine
+│   ├── mining/
+│   │   ├── ncbi_miner.py
+│   │   ├── sra_scout.py
+│   │   ├── autonomous_prospector.py
+│   │   ├── deep_miner_utils.py
+│   │   ├── hepn_filter.py
+│   │   └── debug_sra.py
+│   ├── targeting/
+│   │   ├── archs4_loader.py
+│   │   ├── fusion_metadata.py
+│   │   ├── specificity_filter.py
+│   │   └── mutation_loader.py
+│   ├── discovery/
+│   │   └── fusion_caller.py
+│   ├── analysis/
+│   │   └── expert_agent.py
+│   └── matchmaker.py
 ├── utils/
-│   ├── __init__.py
-│   ├── split_excel.py           # ChimerDB data processor
-│   └── logger.py                # Logging utilities
-├── notebooks/                   # For visual exploration
-│   └── 01_candidate_viz.ipynb
-├── lead_candidates.csv          # Matchmaker output (pre-filter)
-└── lead_candidates_filtered.csv # Final output: Cancer-only, absent-in-normal leads
+│   ├── split_excel.py
+│   ├── logger.py
+│   └── inspect_archs4_metadata.py
+├── prompts/
+│   └── expert_persona.txt
+├── lead_candidates.csv
+└── lead_candidates_filtered.csv
 ```
+
+---
+
+## ⚙️ Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `GEMINI_API_KEY` | Expert agent AI |
+| `TARGET_FUSIONS_CSV` | `novel_fusions.csv` for novel run |
+| `NORMAL_MAX_TPM`, `CANCER_MIN_TPM` | ARCHS4 filter thresholds |
+| `ENRICHMENT_FACTOR` | Organ-specific enrichment (default 2.0) |
+| `USE_ORGAN_SPECIFIC` | 1 = organ-specific, 0 = global |
+| `LLM_PROVIDER`, `LLM_LOCAL_URL`, `LLM_MODEL` | Prospector LLM (e.g. Ollama) |
+| `DEEP_MINE_MAX`, `ESM_THRESHOLD`, `REQUIRE_CRISPR` | Prospector tuning |
 
 ---
 
 ## ⚠️ Troubleshooting
 
-### Common Issues
-
-**"Enzyme file not found"**
-- The system defaults to "Mock Enzyme" simulation if the miner hasn't been run yet
-- This is acceptable for testing pipeline logic
-- Run Step 1 to generate real enzyme data
-
-**"Column not found"**
-- ChimerDB CSVs may have typos (e.g., `fusionsss`)
-- The matchmaker includes built-in typo handling
-- Verify CSV headers if data loading fails
-
-**"ARCHS4 file not found"**
-- Download `human_matrix.h5` from [ARCHS4](https://maayanlab.cloud/archs4/)
-- Place in `data/expression_data/` directory
-- File is large (~10GB) and excluded from git
+- **"Enzyme file not found"** – Matchmaker falls back to mock enzymes.
+- **"ARCHS4 file not found"** – Download `human_matrix.h5` into `data/expression_data/`.
+- **"Column not found"** – Matchmaker handles `fusionsss` typo; verify CSV headers.
+- **Prospector import error** – Install `torch`, `transformers`, `requests`.
 
 ---
 
 ## 📄 License
 
-Proprietary - Collateral Bio © 2026
-
----
-
-## 🤝 Contact
-
-For inquiries about Collateral Bio's Cas13d discovery platform, please contact the development team.
+Proprietary – Collateral Bio © 2026
 
 ---
 
