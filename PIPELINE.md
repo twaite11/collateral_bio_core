@@ -156,7 +156,37 @@ This prints unique `source_name_ch1` labels and their classification (normal / c
 - **`ENRICHMENT_FACTOR`** (default `2.0`): organ-specific mode requires `cancer_mean ≥ enrichment_factor × normal_mean`.
 - **`USE_ORGAN_SPECIFIC`** (default `1`): use organ-specific normal/cancer and enrichment when fusions have associated cancers (from KB_and_Pub / novel_Recur). Set to `0` to use global normal/cancer only.
 
-## 10. Troubleshooting
+## 10. Post-filter (Cas13/Type VI HEPN)
+
+After running the **Autonomous Prospector** for a period (e.g. one week), filter the collected `deep_hits_*.fasta` files using canonical Pfam HEPN domain criteria:
+
+**One-time setup – fetch Pfam HEPN HMM:**
+
+```bash
+python utils/fetch_pfam_hepn.py
+```
+
+**Run the post-filter:**
+
+```bash
+python modules/mining/hepn_filter.py
+```
+
+Options:
+- `--input-dir data/raw_sequences` – directory with deep_hits FASTA files
+- `--glob "deep_hits_*.fasta"` – input file pattern
+- `--require-motif` – also require R.{4,6}H motif topology (100–600 aa spacing)
+- `--output my_filtered` – output basename
+
+Outputs:
+- `data/raw_sequences/cas13_filtered_YYYYMMDD.fasta` – sequences passing dual-HEPN filter
+- `data/raw_sequences/cas13_filter_report_YYYYMMDD.tsv` – per-sequence report (hepn_hits, e_values, passed)
+
+Requires `pyhmmer` (or system HMMER). The filter uses Pfam PF05168 (HEPN) and requires at least 2 domain hits per sequence (E-value ≤ 1e-5).
+
+---
+
+## 11. Troubleshooting
 
 - **"No module named 'Bio'"** → `pip install biopython` (or `pip install -r requirements.txt`).
 - **"ARCHS4 required"** → Add `data/expression_data/human_matrix.h5` (see step 4).

@@ -56,45 +56,84 @@ class HEPNFilter:
         except ImportError:
             pass
 
+    def _run_hmmscan_pyhmmer(self, sequences: list) -> dict[str, list[tuple[float, int, int]]]:
+        """Use PyHMMER hmmsearch: HMM vs sequences. Returns {seq_id: [(evalue, start, end), ...]}."""
+        import pyhmmer.easel
+        import pyhmmer.hmmer
+        import pyhmmer.plan7
+
+        alphabet = pyhmmer.easel.Alphabet.amino()
+        seqs = []
+        for rec in sequences:
+            ts = pyhmmer.easel.TextSequence(name=rec.id.encode(), sequence=str(rec.seq))
+            seqs.append(ts.digitize(alphabet))
+        seq_block = pyhmmer.easel.DigitalSequenceBlock(alphabet, seqs)
+
+        results = {rec.id: [] for rec in sequences}
+        with pyhmmer.plan7.HMMFile(self.hmm_path) as hmm_file:
+            hmm = next(iter(hmm_file))
+            for top_hits in pyhmmer.hmmer.hmmsearch(
+                [hmm], seq_block, cpus=1, E=E_VALUE_THRESHOLD
+            ):
+                for hit in top_hits:
+                    name = hit.name.decode() if isinstance(hit.name, bytes) else str(hit.name)
+                    hits_list = []
+                    for dom in hit.domains:
+                        ev = float(dom.i_evalue) if hasattr(dom.i_evalue, "__float__") else dom.i_evalue
+                        hits_list.append((ev, getattr(dom.alignment, "hmm_from", 0), getattr(dom.alignment, "hmm_to", 0)))
+                    if name in results:
+                        results[name] = hits_list
+        return results
+
+    def _run_hmmscan_subprocess(self, sequences: list, tmp_fasta: str) -> dict[str, list[tuple[float, int, int]]]:
+        """Fallback: run hmmscan via subprocess, parse domtblout."""
+        import subprocess
+        import tempfile
+        SeqIO.write(sequences, tmp_fasta, "fasta")
+        domtblout = tmp_fasta + ".domtblout"
+        try:
+            subprocess.run([
+                "hmmscan", "--domtblout", domtblout, "-E", str(E_VALUE_THRESHOLD),
+                "--noali", self.hmm_path, tmp_fasta  # hmmdb, seqfile
+            ], check=True, capture_output=True, timeout=300)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            raise RuntimeError(
+                "HMMER hmmscan not found or failed. Install HMMER or use: pip install pyhmmer"
+            ) from e
+        results = {rec.id: [] for rec in sequences}
+        with open(domtblout) as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 22:
+                    continue
+                target = parts[0]
+                seq_id = parts[3]
+                i_eval = float(parts[12])
+                ali_from, ali_to = int(parts[19]), int(parts[20])
+                if seq_id in results:
+                    results[seq_id].append((i_eval, ali_from, ali_to))
+        os.unlink(domtblout)
+        return results
+
     def _run_hmmscan(self, sequences: list) -> dict[str, list[tuple[float, int, int]]]:
-        """
-        Scan sequences against Pfam HEPN HMM. Returns {seq_id: [(evalue, start, end), ...]}.
-        """
-        if not self._pyhmmer_available:
-            raise RuntimeError("pyhmmer is required for HMM scan. Install with: pip install pyhmmer")
+        """Scan sequences against Pfam HEPN HMM. Returns {seq_id: [(evalue, start, end), ...]}."""
         if not os.path.exists(self.hmm_path):
             raise FileNotFoundError(
                 f"HEPN HMM not found at {self.hmm_path}. "
                 "Run: python utils/fetch_pfam_hepn.py"
             )
-        import pyhmmer.easel
-        import pyhmmer.hmmer
-        import pyhmmer.plan7
-
-        results = {}
-        alphabet = pyhmmer.easel.Alphabet.amino()
-        seqs_digital = []
-        seq_ids = []
-        for rec in sequences:
-            seq_str = str(rec.seq)
-            seq_ids.append(rec.id)
-            seqs_digital.append(
-                pyhmmer.easel.TextSequence(
-                    name=rec.id.encode(),
-                    sequence=seq_str
-                ).digitize(alphabet)
-            )
-
-        with pyhmmer.plan7.HMMFile(self.hmm_path) as hmm_file:
-            hmm = next(iter(hmm_file))
-            pipeline = pyhmmer.hmmer.Pipeline(alphabet, E=E_VALUE_THRESHOLD)
-            for seq, seq_id in zip(seqs_digital, seq_ids):
-                hits = []
-                for hit in pipeline.scan(hmm, seq):
-                    for dom in hit.domains:
-                        hits.append((dom.i_evalue, dom.alignment.hmm_from, dom.alignment.hmm_to))
-                results[seq_id] = hits
-        return results
+        if self._pyhmmer_available:
+            return self._run_hmmscan_pyhmmer(sequences)
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".fasta", delete=False) as tf:
+            tmp = tf.name
+        try:
+            return self._run_hmmscan_subprocess(sequences, tmp)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
 
     def filter_candidates(
         self,

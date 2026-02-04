@@ -1,5 +1,6 @@
 biopython==1.81
 pandas==2.1.0
+pyhmmer>=0.11
 h5py==3.9.0
 numpy==1.26.0
 jupyterlab
