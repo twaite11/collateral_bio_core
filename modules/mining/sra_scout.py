@@ -169,11 +169,11 @@ class SRAScout:
     def _is_cas13d_candidate(self, protein_seq):
         """
         Apply the HEPN logic.
-        Cas13d needs TWO HEPN domains (RxxxxH) separated by space.
+        Cas13d needs 2-3 HEPN domains (RxxxxH) separated by space.
         """
         matches = [m.start() for m in self.hepn_regex.finditer(protein_seq)]
         
-        if len(matches) < 2:
+        if len(matches) < 2 or len(matches) > 3:
             return False
         
         # Check distance between HEPN domains (Cas13d topology)

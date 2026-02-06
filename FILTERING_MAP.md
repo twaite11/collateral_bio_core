@@ -75,9 +75,9 @@ Wireframe map with filtering actions and criteria at each step.
             ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ FILTER 2: HEPN MOTIF (R...H pattern)                                                                     │
-│ Keep: ≥2 HEPN motifs (Arginine–4to6 aa–Histidine). Motifs must be 100–1200 aa apart.                     │
-│ Throw out: Proteins missing the double-domain structure.                                                 │
-│ Why: HEPN domains are the RNA-cutting "scissors"; Cas13d needs two, properly spaced.                     │
+│ Keep: 2–3 HEPN motifs (Arginine–4to6 aa–Histidine). Motifs must be 100–1200 aa apart.                    │
+│ Throw out: Proteins missing the double-domain structure or with 4+ HEPN domains.                         │
+│ Why: HEPN domains are the RNA-cutting "scissors"; Cas13d needs two or three, properly spaced.            │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
             │
             ├───────────────────────────────────────────────────────────────────────┐
@@ -101,8 +101,9 @@ Wireframe map with filtering actions and criteria at each step.
             ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │ FILTER 5 (Optional post-hoc): hepn_filter                                                                │
-│ Keep: Sequences with ≥2 HEPN motifs (R.{4}H).                                                            │
-│ Throw out: Anything that slipped through without required structure.                                    │
+│ Keep: Sequences with 2–3 Pfam HEPN domain hits (R.{4,6}H). C-terminus: ≥15 aa after last HEPN motif.    │
+│ Throw out: 4+ HEPN domains, C-terminal fragments (no tail after last HEPN).                              │
+│ Why: Canonical Cas13d has 2–3 HEPN domains; C-term tail ensures full-length enzyme.                      │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
             │
             ▼
@@ -244,7 +245,7 @@ Wireframe map with filtering actions and criteria at each step.
        │                      │                     │                     │                     │
        ▼                      ▼                     ▼                     ▼                     ▼
   Search term          Size 600–1400         Specificity            PFS cut sites        ARCHS4 safety
-  match "Cas13d"       HEPN ≥2 motifs        ≤3 cancer types        Disease known       Absent normal
+  match "Cas13d"       HEPN 2–3 motifs       ≤3 cancer types        Disease known       Absent normal
   Env keywords         CRISPR array          Fusion→organ           Rank by score       Present cancer
   BioProject elink     ESM-2 sim >0.75       mapping                                     Gemini GO/HOLD
 
@@ -261,7 +262,8 @@ Wireframe map with filtering actions and criteria at each step.
 |-------|--------|------|-----------|
 | NCBI | Search | Matches query / env keywords | Rest of DB |
 | Enzyme | Size | 600–1400 aa | Too short/long |
-| Enzyme | HEPN | ≥2 motifs, 100–1200 aa apart | Missing domains |
+| Enzyme | HEPN | 2–3 motifs, 100–1200 aa apart | Missing or 4+ domains |
+| Enzyme | hepn_filter C-term | ≥15 aa after last HEPN | C-terminal fragments |
 | Enzyme | CRISPR | Contigs with repeats | No CRISPR context |
 | Enzyme | ESM-2 | Similarity > 0.75 | Doesn't look like Cas13d |
 | Target | Specificity | ≤3 cancer types | Promiscuous fusions |

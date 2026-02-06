@@ -2,9 +2,19 @@
 Cas13/Type VI HEPN Post-Filter.
 
 Filters prospector hits (deep_hits_*.fasta) using canonical genomics methods:
-- Pfam HEPN (PF05168) HMM: require >= 2 domain hits (E-value <= 1e-5)
+- Pfam HEPN (PF05168) HMM: require 2-3 domain hits (E-value <= 1e-5)
 - Optional motif check: R.{4,6}H with 100-1200 aa spacing
+- C-terminus check: min tail after last HEPN motif (filters fragments)
 """
+# #region agent log
+import sys
+_open = open
+def _dbg(payload):
+    p = __file__.replace("\\", "/") + ":startup"
+    with _open(r"c:\Users\Tyler\collateral_bio_core\.cursor\debug.log", "a") as f:
+        f.write((payload if isinstance(payload, str) else __import__("json").dumps(payload)) + "\n")
+_dbg({"sessionId":"debug-session","runId":"run1","hypothesisId":"H1","location":"hepn_filter.py:startup","message":"Python version","data":{"version":list(sys.version_info),"major":sys.version_info.major,"minor":sys.version_info.minor},"timestamp":__import__("time").time()*1000})
+# #endregion
 import argparse
 import glob
 import hashlib
@@ -12,12 +22,14 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from Bio import SeqIO
 
 # HEPN motif for optional secondary filter (Type VI Cas13 topology)
 HEPN_REGEX = re.compile(r"R.{4,6}H")
 MIN_HEPN_HITS = 2
+MAX_HEPN_HITS = 3
 E_VALUE_THRESHOLD = 1e-5
 HEPN_PFAM_ID = "PF05168"
 
@@ -35,6 +47,15 @@ def _has_hepn_motif_topology(seq_str: str) -> bool:
     return False
 
 
+def _passes_cterm_filter(seq_str: str, min_tail: int) -> bool:
+    """Require min_tail aa after last HEPN motif (filters C-terminal fragments)."""
+    matches = list(HEPN_REGEX.finditer(seq_str))
+    if not matches:
+        return False
+    last_end = matches[-1].end()
+    return len(seq_str) - last_end >= min_tail
+
+
 def _seq_dedup_key(record) -> str:
     """Hash sequence for deduplication."""
     return hashlib.md5(str(record.seq).encode()).hexdigest()
@@ -43,18 +64,29 @@ def _seq_dedup_key(record) -> str:
 class HEPNFilter:
     """Filter Cas13-like hits by Pfam HEPN domain and optional motif."""
 
-    def __init__(self, hmm_path: str | None = None, require_motif: bool = False):
+    def __init__(
+        self,
+        hmm_path: Optional[str] = None,
+        require_motif: bool = False,
+        max_hepn: int = MAX_HEPN_HITS,
+        min_cterm_tail: int = 15,
+    ):
         self.hmm_path = hmm_path or os.path.join(
             os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
             "data", "pfam", "PF05168.hmm"
         )
         self.require_motif = require_motif
+        self.max_hepn = max_hepn
+        self.min_cterm_tail = min_cterm_tail
         self._pyhmmer_available = False
         try:
             import pyhmmer
             self._pyhmmer_available = True
         except ImportError:
             pass
+        # #region agent log
+        _dbg({"sessionId":"debug-session","runId":"post-fix","hypothesisId":"H1","location":"hepn_filter.py:HEPNFilter.__init__","message":"Class loaded","data":{"ok":True},"timestamp":__import__("time").time()*1000})
+        # #endregion
 
     def _run_hmmscan_pyhmmer(self, sequences: list) -> dict[str, list[tuple[float, int, int]]]:
         """Use PyHMMER hmmsearch: HMM vs sequences. Returns {seq_id: [(evalue, start, end), ...]}."""
@@ -139,7 +171,7 @@ class HEPNFilter:
         self,
         fasta_paths: list[str],
         output_dir: str,
-        output_basename: str | None = None,
+        output_basename: Optional[str] = None,
     ) -> tuple[list, list[dict]]:
         """
         Merge FASTA files, dedupe, run HMM + optional motif filter.
@@ -169,24 +201,27 @@ class HEPNFilter:
             evals_str = ";".join(f"{e:.2e}" for e, _, _ in hits[:5])
             if n_hepn >= 5:
                 evals_str += "..."
-            passed_hmm = n_hepn >= MIN_HEPN_HITS
+            passed_hmm = MIN_HEPN_HITS <= n_hepn <= self.max_hepn
             seq_str = str(rec.seq)
             passed_motif = _has_hepn_motif_topology(seq_str) if self.require_motif else True
-            passed_all = passed_hmm and passed_motif
+            passed_cterm = _passes_cterm_filter(seq_str, self.min_cterm_tail)
+            passed_all = passed_hmm and passed_motif and passed_cterm
             report_rows.append({
                 "seq_id": rec.id,
                 "hepn_hits": n_hepn,
                 "e_values": evals_str,
                 "passed_hmm": passed_hmm,
                 "passed_motif": passed_motif if self.require_motif else "N/A",
+                "passed_cterm": passed_cterm,
                 "passed": passed_all,
             })
             if passed_all:
                 passed.append(rec)
 
-        print(f"[*] HMM: {sum(1 for r in report_rows if r['passed_hmm'])} with >= {MIN_HEPN_HITS} HEPN hits.")
+        print(f"[*] HMM: {sum(1 for r in report_rows if r['passed_hmm'])} with {MIN_HEPN_HITS}-{self.max_hepn} HEPN hits.")
         if self.require_motif:
             print(f"[*] Motif: {sum(1 for r in report_rows if r['passed_motif'])} with valid R.x4-6.H topology.")
+        print(f"[*] C-term: {sum(1 for r in report_rows if r['passed_cterm'])} with >= {self.min_cterm_tail} aa after last HEPN.")
         print(f"[*] Final: {len(passed)} sequences passed all filters.")
         return passed, report_rows
 
@@ -194,7 +229,7 @@ class HEPNFilter:
         self,
         input_dir: str = "data/raw_sequences",
         glob_pattern: str = "deep_hits_*.fasta",
-        output_basename: str | None = None,
+        output_basename: Optional[str] = None,
     ) -> tuple[str, str]:
         """
         Main entry: glob inputs, filter, write FASTA and report TSV.
@@ -220,7 +255,7 @@ class HEPNFilter:
 
         if report_rows:
             with open(report_path, "w") as f:
-                headers = ["seq_id", "hepn_hits", "e_values", "passed_hmm", "passed_motif", "passed"]
+                headers = ["seq_id", "hepn_hits", "e_values", "passed_hmm", "passed_motif", "passed_cterm", "passed"]
                 f.write("\t".join(headers) + "\n")
                 for r in report_rows:
                     f.write("\t".join(str(r[k]) for k in headers) + "\n")
@@ -235,12 +270,19 @@ def main():
     parser.add_argument("--output", default=None, help="Output basename (default: cas13_filtered_YYYYMMDD)")
     parser.add_argument("--require-motif", action="store_true", help="Also require R.x4-6.H motif topology")
     parser.add_argument("--hmm", default=None, help="Path to Pfam HEPN (PF05168) HMM file")
+    parser.add_argument("--max-hepn", type=int, default=MAX_HEPN_HITS, help="Max HEPN domain hits (default: 3)")
+    parser.add_argument("--min-cterm-tail", type=int, default=15, help="Min aa after last HEPN motif (default: 15)")
     args = parser.parse_args()
 
     if os.environ.get("HEPN_REQUIRE_MOTIF", "").lower() in ("1", "true", "yes"):
         args.require_motif = True
 
-    filt = HEPNFilter(hmm_path=args.hmm, require_motif=args.require_motif)
+    filt = HEPNFilter(
+        hmm_path=args.hmm,
+        require_motif=args.require_motif,
+        max_hepn=args.max_hepn,
+        min_cterm_tail=args.min_cterm_tail,
+    )
     filt.run(
         input_dir=args.input_dir,
         glob_pattern=args.glob,
