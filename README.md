@@ -295,7 +295,20 @@ python -m http.server 8000
 # Open: http://localhost:8000/visualization/structure_dashboard.html
 ```
 
-Requires: `omegafold`, `tmtools` (or US-align), `biopython`. OmegaFold outputs to `data/structure_pipeline/structures/omegafold/`.
+Requires: `tmtools` (or US-align), `biopython`. OmegaFold is not on PyPI and only supports Python 3.8–3.10. On Python 3.11/3.12 (e.g. RunPod), clone and run from source:
+
+```bash
+git clone https://github.com/HeliXonProtein/OmegaFold.git
+cd OmegaFold && pip install torch biopython
+```
+
+Then run the structure pipeline with:
+
+```bash
+python visualization/run_omegafold.py --omegafold-repo /path/to/OmegaFold
+```
+
+(Or set `OMEGAFOLD_REPO=/path/to/OmegaFold`.) OmegaFold outputs to `data/structure_pipeline/structures/omegafold/`.
 
 ---
 

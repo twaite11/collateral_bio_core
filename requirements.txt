@@ -9,5 +9,8 @@ transformers>=4.30.0
 jupyterlab
 google-generativeai>=0.8.0
 python-dotenv>=1.0.0
-omegafold
+# OmegaFold: not on PyPI; supports Python 3.8-3.10 only.
+# On Python 3.11+: git clone https://github.com/HeliXonProtein/OmegaFold
+# then: cd OmegaFold && pip install torch biopython
+# Use: run_omegafold.py --omegafold-repo /path/to/OmegaFold
 tmtools>=0.3.0
