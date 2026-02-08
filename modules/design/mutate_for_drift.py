@@ -7,8 +7,11 @@ import os
 import sys
 import re
 import json
+import time
 import argparse
 import random
+import heapq
+from collections import defaultdict
 from pathlib import Path
 from Bio import SeqIO, Align
 from Bio.Align import substitution_matrices
@@ -22,14 +25,58 @@ AA = list("ACDEFGHIKLMNPQRSTVWY")
 
 def pairwise_identity(seq1: str, seq2: str) -> float:
     """Global alignment identity (fraction of aligned positions that match)."""
+    # #region agent log
+    log_path = os.path.join(os.getcwd(), ".cursor", "debug.log")
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "log_pairwise_entry", "timestamp": time.time() * 1000, "location": "mutate_for_drift.py:24", "message": "pairwise_identity entry", "data": {"seq1_len": len(seq1), "seq2_len": len(seq2), "rough_identity": sum(1 for a, b in zip(seq1[:100], seq2[:100]) if a == b) / max(100, 1) if seq1 and seq2 else 0.0}, "runId": "debug", "hypothesisId": "A,B"}) + "\n")
+    except: pass
+    # #endregion
     aligner = Align.PairwiseAligner(mode="global", substitution_matrix=substitution_matrices.load("BLOSUM62"))
-    alns = aligner.align(seq1, seq2)
-    if not alns:
-        return 0.0
-    a = alns[0]
+    # Limit to 1 alignment to prevent overflow when counting optimal alignments
+    aligner.max_alignments = 1
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "log_before_align", "timestamp": time.time() * 1000, "location": "mutate_for_drift.py:33", "message": "before aligner.align with max_alignments=1", "data": {}, "runId": "debug", "hypothesisId": "C"}) + "\n")
+    except: pass
+    # #endregion
+    try:
+        alns = aligner.align(seq1, seq2)
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": "log_after_align", "timestamp": time.time() * 1000, "location": "mutate_for_drift.py:40", "message": "after aligner.align", "data": {"alns_type": str(type(alns))}, "runId": "debug", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
+        # Use next(iter()) to safely get first alignment without triggering len() calculation
+        a = next(iter(alns), None)
+        if a is None:
+            return 0.0
+    except OverflowError as e:
+        # #region agent log
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"id": "log_overflow_caught", "timestamp": time.time() * 1000, "location": "mutate_for_drift.py:47", "message": "OverflowError caught, using fallback", "data": {"error": str(e)}, "runId": "debug", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
+        # Fallback: use local alignment which is faster and less likely to overflow
+        aligner_fallback = Align.PairwiseAligner(mode="local", substitution_matrix=substitution_matrices.load("BLOSUM62"))
+        aligner_fallback.max_alignments = 1
+        alns_fallback = aligner_fallback.align(seq1, seq2)
+        a = next(iter(alns_fallback), None)
+        if a is None:
+            return 0.0
     matches = sum(1 for i, j in zip(a[0], a[1]) if i == j and i != "-")
     length = max(len(seq1), len(seq2))
-    return matches / length if length else 0.0
+    result = matches / length if length else 0.0
+    # #region agent log
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "log_pairwise_exit", "timestamp": time.time() * 1000, "location": "mutate_for_drift.py:58", "message": "pairwise_identity exit", "data": {"result": result, "matches": matches, "length": length}, "runId": "debug", "hypothesisId": "A,B"}) + "\n")
+    except: pass
+    # #endregion
+    return result
 
 
 def max_identity_to_refs(seq: str, ref_seqs: list) -> float:
@@ -127,6 +174,8 @@ def main():
     parser.add_argument("--use-trans-cleavage-prompt", action="store_true",
                         help="Ask Gemini for mutations that maintain stability but might increase trans-cleavage; validate with ESM")
     parser.add_argument("--trans-cleavage-prompt", default="prompts/trans_cleavage_mutations.txt", help="Path to trans-cleavage prompt")
+    parser.add_argument("--max-seqs-per-enzyme", type=int, default=None,
+                        help="Limit to top N sequences per enzyme (by ESM score) to reduce memory usage. Default: no limit")
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -146,13 +195,143 @@ def main():
 
     engine = DeepEngine(reference_fasta=stability_path if stability_path.exists() else None)
     records = list(SeqIO.parse(input_path, "fasta"))
+    
+    # Cache for enzyme assignments (populated during batch filtering)
+    enzyme_cache = {}
+    
+    # Filter to top N sequences per enzyme if requested
+    if args.max_seqs_per_enzyme and args.max_seqs_per_enzyme > 0:
+        print(f"[*] Scoring {len(records)} sequences to select top {args.max_seqs_per_enzyme} per enzyme...")
+        
+        # Pre-filter by length
+        valid_records = [(rec, str(rec.seq)) for rec in records if len(str(rec.seq)) >= 300]
+        
+        if not valid_records:
+            print("[!] No sequences >= 300 AA. Exiting.")
+            return 1
+        
+        # Use batch scoring for efficiency
+        sequences = [seq for _, seq in valid_records]
+        batch_size = int(os.getenv("EMBED_BATCH_SIZE", "50"))
+        
+        try:
+            import torch
+            embeddings, valid_indices = engine.get_embeddings_batch(sequences, batch_size=batch_size)
+            
+            if embeddings is None or len(valid_indices) == 0:
+                print("[!] Batch scoring failed, falling back to individual scoring")
+                raise ValueError("Batch scoring failed")
+            
+            # Score all sequences against all reference enzymes in batch
+            scores_by_enzyme = defaultdict(list)  # enzyme -> [(score, rec_idx), ...]
+            
+            # Normalize embeddings for cosine similarity
+            embeddings_norm = embeddings / embeddings.norm(dim=1, keepdim=True).clamp(min=1e-9)
+            
+            for ref_idx, (ref_name, ref_vec) in enumerate(zip(engine.ref_names, engine.ref_vectors)):
+                # Normalize reference vector
+                # ref_vec is shape (1, embed_dim) from _get_embedding, squeeze to (embed_dim,)
+                ref_vec_squeezed = ref_vec.squeeze(0) if ref_vec.dim() > 1 else ref_vec
+                ref_vec_norm = ref_vec_squeezed / ref_vec_squeezed.norm().clamp(min=1e-9)
+                # Expand to (1, embed_dim) for broadcasting with (batch_size, embed_dim)
+                ref_vec_norm = ref_vec_norm.unsqueeze(0)
+                
+                # Compute cosine similarity for all sequences at once
+                # cosine_similarity with dim=1: compares along embedding dimension
+                # Returns shape (batch_size,) when comparing (1, embed_dim) with (batch_size, embed_dim)
+                similarities = torch.nn.functional.cosine_similarity(
+                    ref_vec_norm, embeddings_norm, dim=1
+                )
+                
+                # Convert to numpy and ensure it's 1D
+                similarities_np = similarities.cpu().detach().numpy()
+                if similarities_np.ndim > 1:
+                    similarities_np = similarities_np.flatten()
+                
+                # Store scores for this enzyme
+                for emb_idx, sim_score in enumerate(similarities_np):
+                    rec_idx = valid_indices[emb_idx]
+                    scores_by_enzyme[ref_name].append((float(sim_score), rec_idx))
+            
+            # For each sequence, find the best enzyme match
+            best_by_sequence = {}  # rec_idx -> (best_score, best_enzyme)
+            for enzyme, scored_list in scores_by_enzyme.items():
+                for score, rec_idx in scored_list:
+                    if rec_idx not in best_by_sequence or score > best_by_sequence[rec_idx][0]:
+                        best_by_sequence[rec_idx] = (score, enzyme)
+            
+            # Group by best enzyme and keep top N per enzyme using heaps
+            enzyme_groups = defaultdict(list)  # enzyme -> [(score, rec_idx), ...]
+            for rec_idx, (score, enzyme) in best_by_sequence.items():
+                enzyme_groups[enzyme].append((score, rec_idx))
+            
+            # Keep top N per enzyme
+            filtered_indices = set()
+            for enzyme, scored_list in enzyme_groups.items():
+                if len(scored_list) > args.max_seqs_per_enzyme:
+                    # Use heap to efficiently get top N
+                    top_n = heapq.nlargest(args.max_seqs_per_enzyme, scored_list, key=lambda x: x[0])
+                else:
+                    top_n = scored_list
+                
+                for score, rec_idx in top_n:
+                    filtered_indices.add(rec_idx)
+                
+                top_scores = [f"{s:.3f}" for s, _ in top_n[:5]]
+                print(f"[+] Selected {len(top_n)}/{len(scored_list)} sequences for {enzyme} (top scores: {top_scores})")
+            
+            # Reconstruct filtered records and cache enzyme assignments
+            filtered_records_list = []
+            for rec_idx in sorted(filtered_indices):
+                rec, seq = valid_records[rec_idx]
+                filtered_records_list.append(rec)
+                # Cache the enzyme assignment from batch processing
+                if rec_idx in best_by_sequence:
+                    _, enzyme = best_by_sequence[rec_idx]
+                    enzyme_cache[seq] = enzyme
+            records = filtered_records_list
+            print(f"[+] Filtered to {len(records)} total sequences across {len(enzyme_groups)} enzymes")
+            
+        except (ValueError, ImportError, AttributeError) as e:
+            # Fallback to individual scoring if batch fails
+            print(f"[*] Batch scoring not available ({e}), using individual scoring...")
+            scored_by_enzyme = {}
+            for rec, seq in valid_records:
+                try:
+                    score, enzyme = engine.score_candidate_with_ref(seq)
+                    if enzyme not in scored_by_enzyme:
+                        scored_by_enzyme[enzyme] = []
+                    scored_by_enzyme[enzyme].append((score, rec))
+                    # Cache enzyme assignment
+                    enzyme_cache[seq] = enzyme
+                except Exception as ex:
+                    print(f"[!] Failed to score {rec.id}: {ex}")
+                    continue
+            
+            # Sort by score (descending) and take top N per enzyme
+            filtered_records = []
+            for enzyme, scored_list in scored_by_enzyme.items():
+                scored_list.sort(key=lambda x: x[0], reverse=True)
+                top_n = scored_list[:args.max_seqs_per_enzyme]
+                filtered_records.extend([rec for _, rec in top_n])
+                top_scores = [f"{s:.3f}" for s, _ in top_n[:5]]
+                print(f"[+] Selected {len(top_n)}/{len(scored_list)} sequences for {enzyme} (top scores: {top_scores})")
+            
+            records = filtered_records
+            print(f"[+] Filtered to {len(records)} total sequences across {len(scored_by_enzyme)} enzymes")
+    
     kept = []
     for rec in records:
         seq = str(rec.seq)
         if len(seq) < 300:
             continue
         base_identity = max_identity_to_refs(seq, ref_seqs)
-        _, closest_ref = engine.score_candidate_with_ref(seq)
+        
+        # Use cached enzyme from batch processing if available, otherwise score
+        if seq in enzyme_cache:
+            closest_ref = enzyme_cache[seq]
+        else:
+            _, closest_ref = engine.score_candidate_with_ref(seq)
 
         mutants = []
         if args.use_trans_cleavage_prompt and os.getenv("GEMINI_API_KEY"):

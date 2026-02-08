@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--max-identity", type=float, default=0.85, help="Drift goal: max identity to known Cas13")
     parser.add_argument("--tm-threshold", type=float, default=0.4, help="Min TM-score for bi-lobed pass")
     parser.add_argument("--use-trans-cleavage-prompt", action="store_true", help="Use Gemini to suggest mutations that may increase trans-cleavage (maintain stability vs RfxCas13d/PspCas13a)")
+    parser.add_argument("--max-seqs-per-enzyme", type=int, default=10000, help="Limit to top N sequences per enzyme (by ESM score) to reduce memory usage. Default: 10000")
     args = parser.parse_args()
 
     input_fasta = args.input
@@ -68,6 +69,7 @@ def main():
             "--input", current_fasta,
             "--output", str(ROOT / "data" / "design" / "drift_variants.fasta"),
             "--max-identity", str(args.max_identity),
+            "--max-seqs-per-enzyme", str(args.max_seqs_per_enzyme),
         ]
         if os.environ.get("ESM_REFERENCE_FASTA"):
             mutate_argv.extend(["--stability-refs", os.environ.get("ESM_REFERENCE_FASTA")])

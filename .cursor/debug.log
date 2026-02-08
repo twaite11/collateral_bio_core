@@ -1,2 +1,0 @@
-{"sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1", "location": "hepn_filter.py:startup", "message": "Python version", "data": {"version": [3, 9, 13, "final", 0], "major": 3, "minor": 9}, "timestamp": 1770405452574.8381}
-{"sessionId": "debug-session", "runId": "post-fix", "hypothesisId": "H1", "location": "hepn_filter.py:HEPNFilter.__init__", "message": "Class loaded", "data": {"ok": true}, "timestamp": 1770405453450.8486}
