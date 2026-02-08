@@ -1,26 +1,14 @@
-# Pfam HEPN HMM (PF05168)
+# Pfam HEPN (PF05168)
 
-This directory holds the Pfam HEPN domain HMM used by the Cas13/Type VI post-filter.
+This directory can hold the Pfam HEPN domain HMM (PF05168) for optional external use. The main pipeline uses sequence-based HEPN motif checks (2–3× R.{4,6}H) in the structure filter (`bi_lobed_hepn_check.py`), not the Pfam HMM.
 
-## Setup
+## Manual setup (optional)
 
-Run once to fetch the HMM:
-
-```bash
-python utils/fetch_pfam_hepn.py
-```
-
-This downloads Pfam-A.hmm.gz, extracts PF05168, and saves `PF05168.hmm`.
-
-## Manual Setup (if fetch script fails)
-
-If you have HMMER installed:
+If you need PF05168.hmm for other tools:
 
 ```bash
-# Download Pfam (requires wget/curl)
+# With HMMER installed:
 wget https://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz
 gunzip Pfam-A.hmm.gz
-
-# Extract PF05168
 hmmfetch Pfam-A.hmm PF05168 > data/pfam/PF05168.hmm
 ```

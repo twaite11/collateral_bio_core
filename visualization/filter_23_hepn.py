@@ -25,8 +25,8 @@ def main():
     )
     parser.add_argument(
         "--input",
-        default="data/fam_fasta.fasta",
-        help="Input FASTA (e.g. fam_fasta.fasta or hepn_filter output)",
+default="data/mined_sequences/fam_fasta.fasta",
+            help="Input FASTA (e.g. fam_fasta.fasta from family_grouper)",
     )
     parser.add_argument(
         "--output",

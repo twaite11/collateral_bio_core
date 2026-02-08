@@ -55,8 +55,8 @@ def parse_associated_disease(disease_str: str) -> list[str]:
 
 
 def load_fusion_to_cancers(
-    kb_matrix_path: str = "data/KB_and_Pub_Recur_per_cancer.csv",
-    novel_matrix_path: str | None = "data/novel_Recur_per_cancer.csv",
+    kb_matrix_path: str = "data/matrices/KB_and_Pub_Recur_per_cancer.csv",
+    novel_matrix_path: str | None = "data/matrices/novel_Recur_per_cancer.csv",
     data_dir: str | None = None,
 ) -> dict[str, list[str]]:
     """

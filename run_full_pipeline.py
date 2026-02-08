@@ -9,7 +9,7 @@ Usage:
   python run_full_pipeline.py --input data/design/drift_variants.fasta --skip-design --run-matchmaker
 
 Expects:
-  - data/known_cas13.fasta (reference Cas13 sequences for identity/drift)
+  - data/references/known_cas13.fasta (reference Cas13 sequences for identity/drift)
   - OMEGAFOLD_REPO or --omegafold-repo for structure step (or --skip-structure)
   - data/structure_pipeline/references/ with 5W1H.pdb, 6DTD.pdb, 6IV9.pdb (or run visualization/run_tmscore.py once to download)
 """
@@ -112,9 +112,9 @@ def main():
         from modules.identity_filter import run_identity_filter
         out_passed = str(ROOT / "data" / "identity_filtered" / "passed.fasta")
         out_meta = str(ROOT / "data" / "identity_filtered" / "identity_metadata.csv")
-        n = run_identity_filter(
+        n =         run_identity_filter(
             current_fasta,
-            str(ROOT / "data" / "known_cas13.fasta"),
+            str(ROOT / "data" / "references" / "known_cas13.fasta"),
             out_passed,
             out_meta,
             max_identity=args.max_identity,
@@ -127,9 +127,9 @@ def main():
     # Optional: Matchmaker
     if args.run_matchmaker:
         from modules.matchmaker import MasterMatchmaker
-        target_file = str(ROOT / "data" / "high_specificity_targets.csv")
+        target_file = str(ROOT / "data" / "targets" / "high_specificity_targets.csv")
         if not Path(target_file).exists():
-            target_file = str(ROOT / "data" / "known_fusions.csv")
+            target_file = str(ROOT / "data" / "targets" / "known_fusions.csv")
         mm = MasterMatchmaker(enzyme_fasta=current_fasta, target_file=target_file)
         mm.run_matching()
         mm.save_leads("lead_candidates.csv")

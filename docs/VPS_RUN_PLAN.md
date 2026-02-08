@@ -61,14 +61,14 @@ Then in the main pipeline, set `OMEGAFOLD_REPO=/opt/OmegaFold` and call OmegaFol
 
 ### 2.4 Reference data
 
-- **Known Cas13 (for identity/drift):** Create `data/known_cas13.fasta` with sequences of LwaCas13a, RfxCas13d, etc. (one FASTA per reference). If missing, identity filter treats all as 0% identity.
+- **Known Cas13 (for identity/drift):** Create `data/references/known_cas13.fasta` with sequences of LwaCas13a, RfxCas13d, etc. (one FASTA per reference). If missing, identity filter treats all as 0% identity.
 - **Reference PDBs (for structure filter):** Download once:
   ```bash
   python visualization/run_tmscore.py --skip-download  # still creates dir
   # Then download 5W1H.pdb and 6DTD.pdb into data/structure_pipeline/references/
   # Or run run_tmscore without --skip-download to fetch from RCSB.
   ```
-- **Targets for matchmaker:** Ensure `data/high_specificity_targets.csv` or `data/known_fusions.csv` and disease matrix CSVs exist (see README).
+- **Targets for matchmaker:** Ensure `data/targets/high_specificity_targets.csv` or `data/targets/known_fusions.csv` and `data/matrices/` disease matrix CSVs exist (see README).
 
 ### 2.5 Environment file
 
@@ -163,7 +163,7 @@ python -c "
 from modules.identity_filter import run_identity_filter
 run_identity_filter(
   'data/structure_pipeline/passed_structures.fasta',
-  'data/known_cas13.fasta',
+  'data/references/known_cas13.fasta',
   'data/identity_filtered/passed.fasta',
   'data/identity_filtered/identity_metadata.csv',
   max_identity=0.85
@@ -215,5 +215,5 @@ run_identity_filter(
 - **Out of memory (ESM-2):** Set `EMBED_BATCH_SIZE=25` or `FAMILY_DEVICE=cpu`.
 - **OmegaFold not found:** Set `OMEGAFOLD_REPO` to the clone path or use `--skip-structure`.
 - **No reference PDBs:** Run `visualization/run_tmscore.py` once (without `--skip-download`) to fetch 5W1H and 6DTD.
-- **Identity filter keeps all:** Add sequences to `data/known_cas13.fasta`; otherwise max identity is 0 and all pass.
+- **Identity filter keeps all:** Add sequences to `data/references/known_cas13.fasta`; otherwise max identity is 0 and all pass.
 - **Mining returns no hits:** Lower `ESM_THRESHOLD` (e.g. 0.65) or set `REQUIRE_CRISPR=0`; check NCBI/network access.

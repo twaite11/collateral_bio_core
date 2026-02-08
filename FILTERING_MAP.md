@@ -100,10 +100,10 @@ Wireframe map with filtering actions and criteria at each step.
             │
             ▼
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ FILTER 5 (Optional post-hoc): hepn_filter                                                                │
-│ Keep: Sequences with 2–3 Pfam HEPN domain hits (R.{4,6}H). C-terminus: ≥15 aa after last HEPN motif.    │
-│ Throw out: 4+ HEPN domains, C-terminal fragments (no tail after last HEPN).                              │
-│ Why: Canonical Cas13d has 2–3 HEPN domains; C-term tail ensures full-length enzyme.                      │
+│ FILTER 5: Structure filter (run_full_pipeline)                                                          │
+│ Keep: 2–3 HEPN motifs (R.{4,6}H) in sequence; TM-score vs Cas13 refs above threshold.                  │
+│ Throw out: Wrong HEPN count or low structural similarity.                                                 │
+│ Why: Bi-lobed/HEPN check in structure_filter (bi_lobed_hepn_check.py).                                    │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
             │
             ▼
@@ -130,8 +130,8 @@ Wireframe map with filtering actions and criteria at each step.
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 
    ChimerDB / Excel:
-   known_fusions.csv, novel_fusions.csv
-   disease_matrix_known.csv, disease_matrix_novel.csv
+   data/targets/known_fusions.csv, novel_fusions.csv
+   data/matrices/disease_matrix_known.csv, disease_matrix_novel.csv
    KB_and_Pub_Recur_per_cancer.csv
             │
             ▼
@@ -140,7 +140,7 @@ Wireframe map with filtering actions and criteria at each step.
 │ Keep: Fusions present in ≤3 cancer types (configurable).                                                │
 │ Throw out: Fusions in many cancer types (promiscuous / artifact).                                       │
 │ Why: Tissue-specific fusions are real drivers; pan-cancer = noise.                                      │
-│ Output: high_specificity_targets.csv                                                                     │
+│ Output: data/targets/high_specificity_targets.csv                                                                     │
 └─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
             │
             ▼
@@ -263,7 +263,7 @@ Wireframe map with filtering actions and criteria at each step.
 | NCBI | Search | Matches query / env keywords | Rest of DB |
 | Enzyme | Size | 600–1400 aa | Too short/long |
 | Enzyme | HEPN | 2–3 motifs, 100–1200 aa apart | Missing or 4+ domains |
-| Enzyme | hepn_filter C-term | ≥15 aa after last HEPN | C-terminal fragments |
+| Enzyme | full_orf_checks / structure filter | ≥15 aa after last HEPN, 2–3 HEPN | C-terminal fragments, wrong HEPN count |
 | Enzyme | CRISPR | Contigs with repeats | No CRISPR context |
 | Enzyme | ESM-2 | Similarity > 0.75 | Doesn't look like Cas13d |
 | Target | Specificity | ≤3 cancer types | Promiscuous fusions |

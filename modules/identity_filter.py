@@ -85,7 +85,7 @@ def main():
     parser = argparse.ArgumentParser(description="Filter by max identity to known Cas13 (drift goal).")
     parser.add_argument("--input", default="data/structure_pipeline/passed_structures.fasta",
                         help="Input FASTA (e.g. after structure filter)")
-    parser.add_argument("--references", default="data/known_cas13.fasta",
+    parser.add_argument("--references", default="data/references/known_cas13.fasta",
                         help="FASTA of known Cas13 (Lwa, Rfx, etc.)")
     parser.add_argument("--output", default="data/identity_filtered/passed.fasta",
                         help="Output FASTA (passed only)")

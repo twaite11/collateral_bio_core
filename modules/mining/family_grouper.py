@@ -224,7 +224,7 @@ class FamilyGrouper:
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # Main output: fam_fasta.fasta (used by matchmaker)
-        fam_fasta_path = Path("data") / "fam_fasta.fasta"
+        fam_fasta_path = Path("data") / "mined_sequences" / "fam_fasta.fasta"
         fam_fasta_path.parent.mkdir(parents=True, exist_ok=True)
         SeqIO.write(all_renamed, fam_fasta_path, "fasta")
 

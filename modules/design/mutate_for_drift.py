@@ -115,7 +115,7 @@ def suggest_trans_cleavage_mutations(seq: str, ref_name: str, prompt_path: str, 
 def main():
     parser = argparse.ArgumentParser(description="Mutate for drift: ESM-2 stability vs RfxCas13d/PspCas13a + identity < threshold. Optional: Gemini suggests trans-cleavage mutations.")
     parser.add_argument("--input", default="data/raw_sequences/deep_hits_latest.fasta", help="Input FASTA")
-    parser.add_argument("--references", default="data/known_cas13.fasta",
+    parser.add_argument("--references", default="data/references/known_cas13.fasta",
                         help="FASTA of known Cas13 for identity/drift check")
     parser.add_argument("--stability-refs", default=None,
                         help="FASTA for ESM stability (RfxCas13d, PspCas13a). Default: ESM_REFERENCE_FASTA or data/references/mining_refs.fasta")

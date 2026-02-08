@@ -162,7 +162,7 @@ def _find_latest_enzyme_file(directory="data/raw_sequences"):
 def _find_enzyme_file():
     """Prefer fam_fasta (family-grouped), then search_*.fasta, else None."""
     # 1. Family-grouped enzymes (from family_grouper)
-    fam_path = "data/fam_fasta.fasta"
+    fam_path = "data/mined_sequences/fam_fasta.fasta"
     if os.path.exists(fam_path):
         return fam_path
     # 2. Raw mined sequences
@@ -174,23 +174,23 @@ if __name__ == "__main__":
     # Prefer fam_fasta.fasta (family-grouped), else latest search_*.fasta
     ENZYME_FILE = _find_enzyme_file()
     if not ENZYME_FILE:
-        print("[!] Warning: No fam_fasta.fasta or search_*.fasta found. Using mock enzymes.")
+        print("[!] Warning: No fam_fasta.fasta (data/mined_sequences/) or search_*.fasta found. Using mock enzymes.")
         ENZYME_FILE = None
     else:
         print(f"[*] Using enzyme file: {ENZYME_FILE}")
     
     # CASE 1: Run on Specificity Filtered Data (Recommended)
     # Check if filtered targets exist, otherwise use raw fusion files
-    if os.path.exists("data/high_specificity_targets.csv"):
-        TARGET_FILE = "data/high_specificity_targets.csv"
+    if os.path.exists("data/targets/high_specificity_targets.csv"):
+        TARGET_FILE = "data/targets/high_specificity_targets.csv"
         DISEASE_FILE = None  # Not needed, specificity filter provides disease
         print("[*] Using specificity-filtered targets")
     else:
         # CASE 2: Run on Raw Validation Data
-        TARGET_FILE = "data/known_fusions.csv"
-        DISEASE_FILE = "data/KB_and_Pub_Recur_per_cancer.csv"
+        TARGET_FILE = "data/targets/known_fusions.csv"
+        DISEASE_FILE = "data/matrices/KB_and_Pub_Recur_per_cancer.csv"
         if not os.path.exists(DISEASE_FILE):
-            DISEASE_FILE = "data/disease_matrix_known.csv"
+            DISEASE_FILE = "data/matrices/disease_matrix_known.csv"
         print("[*] Using raw fusion files")
     
     matcher = MasterMatchmaker(ENZYME_FILE, TARGET_FILE, DISEASE_FILE)

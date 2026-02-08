@@ -51,7 +51,7 @@ See **[FILTERING_MAP.md](FILTERING_MAP.md)** for the full filtering map from NCB
 ```
 ┌─────────────────────────────────────────────┐   ┌─────────────────────────────────────────────┐
 │         THE ARMORY (Enzyme Mining)           │   │        THE VAULT (Target Discovery)         │
-│  ncbi_miner · sra_scout · autonomous_prospector │   │  fusion_metadata · specificity_filter · archs4 │
+│  sra_scout · autonomous_prospector · full_orf_checks │   │  fusion_metadata · specificity_filter · archs4 │
 │  full_orf_checks · CRISPR repeat metadata   │   │                                             │
 └──────────────────────┬──────────────────────┘   └──────────────────────┬──────────────────────┘
                        └────────────────────┬─────────────────────────────┘
@@ -121,13 +121,11 @@ Then use `--omegafold-repo /path/to/OmegaFold` or `OMEGAFOLD_REPO`. Output: `dat
 
 | Module | Purpose | Logic |
 |--------|---------|-------|
-| **ncbi_miner** | Annotated novel Type VI CRISPR enzymes from NCBI Protein | `Entrez.esearch(db="protein")` → fetch FASTA → save `search_YYYYMMDD.fasta` |
 | **sra_scout** | Unannotated metagenomes (WGS) | Normalizes query, tries `wgs[Prop]` → fallback; 6-frame translate, HEPN + topology; **full_orf_checks** (N-term M, C-term tail, contig boundary); saves `undiscovered_typevi_*.fasta` |
 | **autonomous_prospector** | AI-driven continuous mining | LLM → SRAScout.search_wgs → semantic filter → DeepEngine + NeighborhoodWatch → deep_mine ORFs 600–1400 aa; **full_orf_checks**; when REQUIRE_CRISPR/REQUIRE_FULL_STRUCTURE, requires ≥MIN_REPEAT_COUNT repeat domains; saves `deep_hits_*.fasta` + metadata |
 | **full_orf_checks** | Full-enzyme ORF validation | N-term: ORF starts with M; C-term: min tail after last HEPN; contig-boundary: reject ORFs truncated within margin nt (env: REQUIRE_START_M, MIN_CTERM_TAIL, CONTIG_BOUNDARY_MARGIN) |
 | **deep_miner_utils** | Deep learning engine | **DeepEngine**: ESM-2 35M; scores vs **RfxCas13d** and **PspCas13a** when `ESM_REFERENCE_FASTA` set (closest similarity); **NeighborhoodWatch**: CRISPR array detection |
-| **hepn_filter** | HEPN motif validation | Scans FASTA for ≥2 `R.{4}H` motifs → retains valid enzymes |
-| **debug_sra** | Connectivity check | Tests NCBI fetch with known ID to verify network + translation |
+| **family_grouper** | Group mined sequences by homology | ESM-2 clustering; SN01_001 naming; outputs `data/mined_sequences/family_grouped_*.fasta`, `fam_fasta.fasta` |
 
 ---
 
@@ -187,21 +185,20 @@ For **Autonomous Prospector**: `pip install torch transformers requests`
 
 | File | Description |
 |------|-------------|
-| `known_fusions.csv` | Validation targets |
-| `novel_fusions.csv` | Discovery targets |
-| `disease_matrix_*.csv` / `KB_and_Pub_Recur_per_cancer.csv` | Fusion × cancer matrix |
+| `data/targets/known_fusions.csv` | Validation targets |
+| `data/targets/novel_fusions.csv` | Discovery targets |
+| `data/matrices/disease_matrix_*.csv`, `KB_and_Pub_Recur_per_cancer.csv` | Fusion × cancer matrix |
 | `data/expression_data/human_matrix.h5` | ARCHS4 (download from [ARCHS4](https://maayanlab.cloud/archs4/)) |
-| `data/known_cas13.fasta` | Known Cas13 sequences (Lwa, Rfx, etc.) for identity/drift filter; see `data/known_cas13.fasta.example` |
+| `data/references/known_cas13.fasta` | Known Cas13 sequences (Lwa, Rfx, etc.) for identity/drift filter; see `data/references/known_cas13.fasta.example` |
 
-Mining outputs: `data/raw_sequences/deep_hits_*.fasta` and `deep_hits_*_metadata.csv` (SRA accession + CRISPR repeat domains per hit). Regenerate CSVs: `python utils/split_excel.py`
+Mining outputs: `data/raw_sequences/deep_hits_*.fasta` and `*_metadata.csv`. To regenerate fusion/matrix CSVs from Excel: place `Recurrent_table.xlsx` in `data/source/`, then `python utils/split_excel.py` (writes to `data/targets/` and `data/matrices/`).
 
 ### Workflow Steps
 
 | Step | Command |
 |------|---------|
-| **1. Mine Enzymes** | NCBI Protein: `python -c "from modules.mining.ncbi_miner import EnzymeMiner; EnzymeMiner().search_and_fetch('Type VI CRISPR')"` |
+| **1. Mine Enzymes** | Autonomous Prospector: `python modules/mining/autonomous_prospector.py` (full-enzyme + optional CRISPR repeat requirement; saves `data/raw_sequences/deep_hits_*.fasta` + `*_metadata.csv` with SRA + repeat domains) |
 | | SRA Scout: `SRAScout().search_wgs(...)` → `fetch_and_mine` (full-enzyme ORF checks applied) |
-| | Autonomous Prospector: `python modules/mining/autonomous_prospector.py` (full-enzyme + optional CRISPR repeat requirement; saves `deep_hits_*.fasta` + `*_metadata.csv` with SRA + repeat domains) |
 | **2. Family Grouping** | `python modules/mining/family_grouper.py` (ESM-2 homology, SN01_001 naming) |
 | **3. Specificity Filter** | `python modules/targeting/specificity_filter.py` |
 | **4. Matchmaker** | `python modules/matchmaker.py` |
@@ -218,7 +215,7 @@ After mining, run the integrated pipeline on a FASTA pool (e.g. latest `deep_hit
 | **Embed** | ESM-2 embeddings for all sequences → `data/design/embeddings/` |
 | **Mutate for drift** | Score stability vs **RfxCas13d/PspCas13a** (`--stability-refs` or `ESM_REFERENCE_FASTA`); optional **Gemini** trans-cleavage prompt (`--use-trans-cleavage-prompt`) for mutations that maintain structure but may increase trans-cleavage; keep variants &lt;85% identity → `data/design/drift_variants.fasta` |
 | **Structure filter** | OmegaFold → TM-score + HEPN check → `data/structure_pipeline/passed_structures.fasta` |
-| **Identity filter** | Keep only &lt;85% identity to `data/known_cas13.fasta` → `data/identity_filtered/passed.fasta` |
+| **Identity filter** | Keep only &lt;85% identity to `data/references/known_cas13.fasta` → `data/identity_filtered/passed.fasta` |
 | **Matchmaker** (optional) | Enzyme × fusion targets → `lead_candidates.csv` |
 
 ```bash
@@ -254,12 +251,12 @@ collateral_bio_core/
 │   ├── structure_pipeline/    # passed_structures.fasta, structures/omegafold/, references/
 │   ├── identity_filtered/     # passed.fasta, identity_metadata.csv
 │   ├── expression_data/       # human_matrix.h5
-│   ├── known_cas13.fasta      # reference sequences for identity/drift
-│   ├── high_specificity_targets.csv
-│   ├── known_fusions.csv, novel_fusions.csv
-│   └── disease_matrix_*.csv
+│   ├── source/                # Recurrent_table.xlsx (input for split_excel)
+│   ├── targets/               # known_fusions.csv, novel_fusions.csv, high_specificity_targets.csv
+│   ├── matrices/              # disease_matrix_*.csv, KB_and_Pub_Recur_per_cancer.csv
+│   └── references/            # known_cas13.fasta, mining_refs.fasta
 ├── modules/
-│   ├── mining/                # ncbi_miner, sra_scout, autonomous_prospector, full_orf_checks, family_grouper, hepn_filter
+│   ├── mining/                # sra_scout, autonomous_prospector, full_orf_checks, deep_miner_utils, family_grouper
 │   ├── design/                # embed_pool, interpolate, mutate_for_drift (ESM-2 latent + drift)
 │   ├── structure_filter/      # predict_structures, bi_lobed_hepn_check, run_filter
 │   ├── identity_filter.py     # drift goal: max identity < 85%
@@ -279,7 +276,7 @@ collateral_bio_core/
 │   ├── structure_dashboard.py
 │   ├── structure_dashboard.html
 │   └── family_dashboard.py
-├── utils/
+├── utils/                     # split_excel, inspect_archs4_metadata
 ├── prompts/
 ├── lead_candidates.csv
 └── lead_candidates_filtered.csv
@@ -310,7 +307,7 @@ collateral_bio_core/
 - **Prospector import error** – Install `torch`, `transformers`, `requests`.
 - **OmegaFold Python 3.12** – Use clone + `--omegafold-repo`.
 - **No hits from mining** – Check `REQUIRE_START_M`, `MIN_CTERM_TAIL`; relax or set `REQUIRE_CRISPR=0` / `REQUIRE_FULL_STRUCTURE=0` to test.
-- **Identity filter keeps all** – Add sequences to `data/known_cas13.fasta`; otherwise max identity is 0 and all pass.
+- **Identity filter keeps all** – Add sequences to `data/references/known_cas13.fasta`; otherwise max identity is 0 and all pass.
 
 ---
 

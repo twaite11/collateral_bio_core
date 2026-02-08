@@ -297,7 +297,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate family dashboard from fam_fasta.")
     parser.add_argument(
         "--input",
-        default="data/fam_fasta.fasta",
+        default="data/mined_sequences/fam_fasta.fasta",
         help="Input FASTA file",
     )
     parser.add_argument(

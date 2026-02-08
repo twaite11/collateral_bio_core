@@ -71,10 +71,10 @@ if __name__ == "__main__":
     # CONFIGURATION
     # Input: The Matrix File (Cancer x Fusion)
     # Ensure you have renamed your uploaded file to this:
-    INPUT_MATRIX = "data/disease_matrix_novel.csv" 
+    INPUT_MATRIX = "data/matrices/disease_matrix_novel.csv" 
     
     # Output: The Clean List for the Matchmaker
-    OUTPUT_LIST = "data/high_specificity_targets.csv"
+    OUTPUT_LIST = "data/targets/high_specificity_targets.csv"
     
     filter_tool = SpecificityFilter(INPUT_MATRIX, OUTPUT_LIST)
     filter_tool.run_filter(max_tissue_types=3)
