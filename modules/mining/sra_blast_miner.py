@@ -2,7 +2,8 @@
 SRA Cas13 search using Magic-BLAST (blastn_vdb) against SRA runs without downloading.
 Fetches Run accessions (SRR) by ESearch, runs magic-blast -sra, parses hits, applies
 full-enzyme filters (700-1400 aa, exactly 2 HEPN, N-term M, C-term tail, mandatory CRISPR).
-CRISPR domain sequences are extracted and saved in metadata with SRA accession for crRNA binding.
+CRISPR is required: we search 5 kb upstream and 5 kb downstream of the ORF for the nearest
+CRISPR repeat and save that sequence in metadata with SRA accession for crRNA binding.
 Saves deep_hits FASTA + metadata for the structure pipeline.
 
 Pagination: SRA ESearch is paginated (retstart/retmax). We keep requesting pages until
@@ -15,9 +16,10 @@ import os
 import re
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 from Bio import Entrez, SeqIO, Seq
 from Bio.Seq import Seq
@@ -141,9 +143,9 @@ def get_all_sra_runs(
 ) -> List[str]:
     """
     Paginate SRA search until we have up to max_total Run accessions.
-    Keeps requesting pages (retstart) until NCBI returns no more runs or we hit max_total.
-    There is no fixed page limit—stops only when the server returns fewer than page_size
-    results or we have collected max_total.
+    Keeps requesting pages (retstart) until NCBI returns no runs (empty batch) or we hit max_total.
+    One page of SRA records can yield fewer runs than page_size (e.g. 438 runs from 500 records),
+    so we do not stop on len(batch) < page_size—only when batch is empty.
     """
     all_runs = []
     retstart = 0
@@ -154,8 +156,6 @@ def get_all_sra_runs(
         for r in batch:
             if r not in all_runs:
                 all_runs.append(r)
-        if len(batch) < page_size:
-            break
         retstart += page_size
         if retstart >= max_total:
             break
@@ -165,7 +165,7 @@ def get_all_sra_runs(
 def build_nucleotide_reference(protein_fasta: str, max_aa: int = 600, out_path: Optional[str] = None) -> str:
     """
     Back-translate first max_aa of first protein in FASTA to DNA; write to out_path or temp.
-    Returns path to nucleotide FASTA for magic-blast -query.
+    Returns path to nucleotide FASTA (used as input for makeblastdb).
     """
     path = Path(protein_fasta)
     if not path.exists():
@@ -183,39 +183,88 @@ def build_nucleotide_reference(protein_fasta: str, max_aa: int = 600, out_path: 
     return out
 
 
+def build_blast_db(
+    fasta_path: str,
+    db_path: str,
+    makeblastdb_cmd: str = "makeblastdb",
+) -> str:
+    """
+    Run makeblastdb to create a nucleotide BLAST database for Magic-BLAST -db.
+    db_path is the basename/path without extension (e.g. output_dir/_cas13_ref_db).
+    Returns db_path.
+    """
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        makeblastdb_cmd,
+        "-in", str(fasta_path),
+        "-dbtype", "nucl",
+        "-out", str(db_path),
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:
+        if r.stderr:
+            raise RuntimeError(f"makeblastdb failed: {r.stderr[:500]}")
+        raise RuntimeError("makeblastdb failed")
+    return str(db_path)
+
+
+def build_magicblast_command(
+    sra_accessions: List[str],
+    db_path: str,
+    out_tsv: str,
+    magicblast_cmd: str = "magicblast",
+    num_threads: int = 4,
+) -> Tuple[List[str], str, Optional[str]]:
+    """
+    Build the Magic-BLAST command and cwd for SRA mode. Returns (cmd, cwd, batch_file_path).
+    batch_file_path is None for single accession; otherwise path to write SRA list (caller must create it).
+    """
+    out_path = Path(out_tsv)
+    db_path_p = Path(db_path)
+    db_dir = db_path_p.parent.resolve()
+    db_basename = db_path_p.name
+    if len(sra_accessions) == 1:
+        cmd = (
+            [magicblast_cmd]
+            + ["-sra", sra_accessions[0]]
+            + ["-db", db_basename, "-out", out_path.name, "-outfmt", "tabular", "-num_threads", str(num_threads)]
+        )
+        return cmd, str(db_dir), None
+    batch_file = str(out_path.parent / f"_sra_batch_{out_path.stem}.txt")
+    cmd = (
+        [magicblast_cmd]
+        + ["-sra_batch", Path(batch_file).name]
+        + ["-db", db_basename, "-out", out_path.name, "-outfmt", "tabular", "-num_threads", str(num_threads)]
+    )
+    return cmd, str(db_dir), batch_file
+
+
 def run_magic_blast(
     sra_accessions: List[str],
-    query_fasta: str,
+    db_path: str,
     out_tsv: str,
     magicblast_cmd: str = "magicblast",
     num_threads: int = 4,
     evalue: float = 1e-5,
 ) -> bool:
     """
-    Run magic-blast with -sra or -sra_batch against query FASTA. Writes tabular output
-    with qseq and sseq so we get subject nucleotide sequence. Returns True if run succeeded.
+    Run magic-blast with -db (BLAST database) and -sra / -sra_batch per Magic-BLAST docs.
+    Uses -outfmt tabular. Runs with cwd=DB directory and -db as basename so the DB is found.
     """
-    Path(out_tsv).parent.mkdir(parents=True, exist_ok=True)
-    batch_file = None
+    out_path = Path(out_tsv)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    cmd, cwd, batch_file = build_magicblast_command(
+        sra_accessions, db_path, out_tsv, magicblast_cmd=magicblast_cmd, num_threads=num_threads
+    )
     try:
-        if len(sra_accessions) == 1:
-            sra_arg = ["-sra", sra_accessions[0]]
-        else:
-            batch_file = out_tsv + ".sra_batch.txt"
+        if batch_file:
             with open(batch_file, "w") as f:
                 f.write("\n".join(sra_accessions))
-            sra_arg = ["-sra_batch", batch_file]
-        cmd = [
-            magicblast_cmd,
-            "-query", str(query_fasta),
-            "-out", out_tsv,
-            "-outfmt", "6 std qseq sseq",
-            "-num_threads", str(num_threads),
-            "-evalue", str(evalue),
-        ] + sra_arg
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600, cwd=cwd)
         if r.returncode != 0 and r.stderr:
             print(f"[!] magic-blast stderr: {r.stderr[:500]}")
+        if r.returncode == 0 and Path(cwd).resolve() != out_path.parent.resolve():
+            (Path(cwd) / out_path.name).rename(out_tsv)
         return r.returncode == 0
     finally:
         if batch_file and Path(batch_file).exists():
@@ -238,36 +287,134 @@ def _translate_hit(sseq: str, sstart: int, send: int) -> str:
     return str(Seq(s).translate(to_stop=False))
 
 
-def parse_magicblast_tsv(tsv_path: str) -> List[Tuple[str, str, str, str]]:
+def load_ref_seqs(fasta_path: str) -> Dict[str, str]:
+    """Load reference sequences from FASTA into id -> sequence (uppercase). Matches makeblastdb IDs (first token of header)."""
+    ref_seqs = {}
+    for rec in SeqIO.parse(fasta_path, "fasta"):
+        ref_seqs[rec.id] = str(rec.seq).upper()
+    return ref_seqs
+
+
+def parse_magicblast_tabular(
+    tab_path: str,
+    ref_seqs: Dict[str, str],
+) -> List[Tuple[str, str, str, str, int, int]]:
     """
-    Parse magic-blast tabular output (format 6 std qseq sseq). Return list of
-    (qseqid, sseqid, protein_sequence, nucleotide_sseq) for filtering.
+    Parse Magic-BLAST -outfmt tabular output. Subject sequence is not in the file; we look up
+    ref_seqs[ref_id] and extract the aligned segment. Returns list of
+    (qseqid, sseqid, protein_sequence, nucleotide_sseq, sstart, send) for filtering.
+    Tabular columns: 1=query id, 2=ref id, 9=sstart, 10=send (1-based), 15=ref strand.
     """
-    # Columns: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qseq sseq
     rows = []
-    with open(tsv_path) as f:
+    with open(tab_path) as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             parts = line.split("\t")
-            if len(parts) < 14:
+            if len(parts) < 15:
                 continue
-            qseqid, sseqid, pident, length, mismatch, gapopen, qstart, qend, sstart, send, evalue, bitscore, qseq, sseq = parts[:14]
+            qseqid, sseqid = parts[0], parts[1]
             try:
-                sstart_i, send_i = int(sstart), int(send)
-            except ValueError:
+                sstart_i, send_i = int(parts[8]), int(parts[9])
+            except (ValueError, IndexError):
                 continue
-            protein = _translate_hit(sseq, sstart_i, send_i)
+            ref_seq = ref_seqs.get(sseqid) or ref_seqs.get(sseqid.split("|")[-1] if "|" in sseqid else "")
+            if not ref_seq:
+                continue
+            # Extract segment in reference order (1-based inclusive)
+            lo, hi = min(sstart_i, send_i), max(sstart_i, send_i)
+            segment = ref_seq[lo - 1 : hi]
+            protein = _translate_hit(segment, sstart_i, send_i)
             if not protein or "*" in protein:
                 protein = protein.split("*")[0]
-            rows.append((qseqid, sseqid, protein, sseq))
+            sseq_nt = segment.replace("-", "").upper()
+            if sstart_i > send_i:
+                sseq_nt = str(Seq(sseq_nt).reverse_complement())
+            rows.append((qseqid, sseqid, protein, sseq_nt, sstart_i, send_i))
     return rows
 
 
 # CRISPR repeat: min length and min tandem count (required for crRNA binding)
 CRISPR_MIN_LEN = 20
 CRISPR_MIN_COUNT = 2
+# Flanking window (bp) upstream and downstream of ORF to search for CRISPR array
+CRISPR_FLANK_BP = 5000
+
+
+def _orf_bounds_in_hit(nucleotide: str, sstart: int, send: int, protein_len: int) -> Tuple[int, int]:
+    """
+    Return (orf_start, orf_end) 0-based indices in the gap-stripped nucleotide string.
+    Forward: orf is at frame..frame+protein_len*3; reverse: orf is at end of alignment.
+    """
+    n = nucleotide.replace("-", "").upper()
+    frame = (abs(sstart) - 1) % 3
+    orf_nt_len = protein_len * 3
+    if sstart <= send:
+        orf_start = frame
+        orf_end = frame + orf_nt_len
+    else:
+        orf_start = len(n) - (frame + orf_nt_len)
+        orf_end = len(n) - frame
+    return max(0, orf_start), min(len(n), orf_end)
+
+
+def _find_repeats_with_positions(
+    nucleotide: str, min_len: int = 20, min_count: int = 2
+) -> List[Tuple[str, int]]:
+    """Find CRISPR-like tandem repeats; return list of (repeat_sequence, start_position)."""
+    n = nucleotide.replace("-", "").upper()
+    found = []
+    seen_motifs = set()
+    for L in range(min_len, min(55, len(n) // min_count + 1)):
+        for i in range(len(n) - L * min_count + 1):
+            motif = n[i : i + L]
+            if motif in seen_motifs:
+                continue
+            count = 0
+            j = i
+            while j <= len(n) - L and n[j : j + L] == motif:
+                count += 1
+                j += L
+            if count >= min_count:
+                seen_motifs.add(motif)
+                found.append((motif, i))
+    return found
+
+
+def _nearest_crispr_in_flanking(
+    nucleotide: str,
+    orf_start: int,
+    orf_end: int,
+    flank_bp: int = CRISPR_FLANK_BP,
+    min_len: int = CRISPR_MIN_LEN,
+    min_count: int = CRISPR_MIN_COUNT,
+) -> Optional[str]:
+    """
+    Search ±flank_bp upstream and downstream of the ORF for CRISPR repeats.
+    Return the repeat sequence nearest to the ORF (upstream or downstream), or None if none found.
+    """
+    n = nucleotide.replace("-", "").upper()
+    up_start = max(0, orf_start - flank_bp)
+    up_end = orf_start
+    down_start = orf_end
+    down_end = min(len(n), orf_end + flank_bp)
+    upstream_region = n[up_start:up_end]
+    downstream_region = n[down_start:down_end]
+    best_repeat: Optional[str] = None
+    best_dist: Optional[int] = None
+    for region, orf_bound, dist_from_bound in [
+        (upstream_region, orf_start, lambda pos: up_end - up_start - pos),
+        (downstream_region, orf_end, lambda pos: pos),
+    ]:
+        for repeat_seq, pos in _find_repeats_with_positions(region, min_len, min_count):
+            d = dist_from_bound(pos)
+            if d < 0:
+                continue
+            if best_dist is None or d < best_dist:
+                best_dist = d
+                best_repeat = repeat_seq
+    return best_repeat
 
 
 def _extract_crispr_repeat_sequences(nucleotide: str, min_len: int = 20, min_count: int = 2) -> List[str]:
@@ -305,10 +452,12 @@ def passes_cas13_filters(
     min_tail: int = 15,
     require_m: bool = True,
     nucleotide_hit: Optional[str] = None,
+    skip_crispr_check: bool = False,
 ) -> bool:
     """
     Apply filters: length 700-1400 aa, exactly 2 HEPN, N-term M, C-term tail.
-    CRISPR repeat is mandatory (nucleotide_hit must contain a tandem repeat) for crRNA binding.
+    CRISPR is mandatory: either nucleotide_hit contains a repeat (in-hit), or caller
+    guarantees a repeat in flanking (skip_crispr_check=True).
     """
     if not protein or len(protein) < MIN_AA or len(protein) > MAX_AA:
         return False
@@ -319,13 +468,61 @@ def passes_cas13_filters(
         return False
     if not passes_c_term(protein, min_tail):
         return False
-    if not nucleotide_hit or not _has_crispr_repeat(nucleotide_hit, CRISPR_MIN_LEN, CRISPR_MIN_COUNT):
+    if not skip_crispr_check and (not nucleotide_hit or not _has_crispr_repeat(nucleotide_hit, CRISPR_MIN_LEN, CRISPR_MIN_COUNT)):
         return False
     return True
 
 
 # Delimiter for multiple CRISPR repeat sequences in metadata CSV (no commas)
 CRISPR_REPEAT_DELIM = "|"
+
+
+def _process_one_batch(
+    batch_index: int,
+    batch: List[str],
+    db_path: str,
+    out_dir: Path,
+    ref_seqs: Dict[str, str],
+    min_tail: int,
+    require_m: bool,
+    magicblast_cmd: str,
+    num_threads: int,
+) -> List[Tuple[str, str, str]]:
+    """
+    Run magic-blast for one batch, parse, filter. Returns list of (run_id, protein, crispr_str).
+    Used by parallel workers; main thread dedupes and assigns seq_id.
+    """
+    tsv = str(out_dir / f"_magicblast_batch_{batch_index}.tsv")
+    ok = run_magic_blast(batch, db_path, tsv, magicblast_cmd=magicblast_cmd, num_threads=num_threads)
+    results = []
+    if not ok or not Path(tsv).exists():
+        return results
+    try:
+        for qseqid, sseqid, protein, sseq_nt, sstart_i, send_i in parse_magicblast_tabular(tsv, ref_seqs):
+            orf_start, orf_end = _orf_bounds_in_hit(sseq_nt, sstart_i, send_i, len(protein))
+            nearest_crispr = _nearest_crispr_in_flanking(
+                sseq_nt, orf_start, orf_end,
+                flank_bp=CRISPR_FLANK_BP,
+                min_len=CRISPR_MIN_LEN,
+                min_count=CRISPR_MIN_COUNT,
+            )
+            if not nearest_crispr:
+                continue
+            if not passes_cas13_filters(
+                protein,
+                min_tail=min_tail,
+                require_m=require_m,
+                skip_crispr_check=True,
+            ):
+                continue
+            run_id = sseqid.split(".")[0] if "." in sseqid else sseqid.split("_")[0]
+            results.append((run_id, protein, nearest_crispr))
+    finally:
+        try:
+            Path(tsv).unlink()
+        except OSError:
+            pass
+    return results
 
 
 def mine_sra_with_magicblast(
@@ -335,50 +532,70 @@ def mine_sra_with_magicblast(
     magicblast_cmd: str = "magicblast",
     run_batch_size: int = 50,
     num_threads: int = 4,
+    max_workers: int = 8,
 ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str, str, str]]]:
     """
-    For each batch of SRA runs, run magic-blast, parse hits, filter to full Cas13-like ORFs
-    with mandatory CRISPR repeat. CRISPR domain sequences are saved in metadata with SRA accession.
-    Returns (discoveries, metadata): discoveries = [(seq_id, seq)],
-    metadata = [(seq_id, sra_accession, crispr_domain_sequences, score)].
+    For each batch of SRA runs, run magic-blast (optionally in parallel), parse hits,
+    filter to full Cas13-like ORFs with mandatory CRISPR repeat.
+    Returns (discoveries, metadata).
+
+    max_workers: number of batches to run in parallel (default 8 for ~32 cores with num_threads=4).
+    Total CPU use ~ max_workers * num_threads.
     """
     cfg = get_full_orf_config()
     min_tail = cfg["min_tail"]
     require_m = cfg["require_m"]
     ref_nt_path = build_nucleotide_reference(reference_fasta, max_aa=600)
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    db_path = str(out_dir / "_cas13_ref_db")
+    makeblastdb_cmd = str(Path(magicblast_cmd).parent / "makeblastdb") if os.path.dirname(magicblast_cmd) else "makeblastdb"
+    build_blast_db(ref_nt_path, db_path, makeblastdb_cmd=makeblastdb_cmd)
+    ref_seqs = load_ref_seqs(ref_nt_path)
     discoveries = []
     metadata = []
     seen_seqs = set()
 
-    for i in range(0, len(sra_runs), run_batch_size):
-        batch = sra_runs[i : i + run_batch_size]
-        tsv = str(Path(output_dir) / f"_magicblast_batch_{i}.tsv")
-        ok = run_magic_blast(batch, ref_nt_path, tsv, magicblast_cmd=magicblast_cmd, num_threads=num_threads)
-        if not ok or not Path(tsv).exists():
-            continue
-        for qseqid, sseqid, protein, sseq_nt in parse_magicblast_tsv(tsv):
-            if not passes_cas13_filters(
-                protein,
-                min_tail=min_tail,
-                require_m=require_m,
-                nucleotide_hit=sseq_nt,
+    batch_indices = list(range(0, len(sra_runs), run_batch_size))
+    if max_workers <= 1:
+        for i in batch_indices:
+            batch = sra_runs[i : i + run_batch_size]
+            for run_id, protein, crispr_str in _process_one_batch(
+                i, batch, db_path, out_dir, ref_seqs, min_tail, require_m, magicblast_cmd, num_threads
             ):
-                continue
-            crispr_seqs = _extract_crispr_repeat_sequences(sseq_nt, CRISPR_MIN_LEN, CRISPR_MIN_COUNT)
-            crispr_str = CRISPR_REPEAT_DELIM.join(crispr_seqs) if crispr_seqs else ""
-            # Dedupe by sequence
-            key = protein[:200] + "|" + protein[-200:]
-            if key in seen_seqs:
-                continue
-            seen_seqs.add(key)
-            run_id = sseqid.split(".")[0] if "." in sseqid else sseqid.split("_")[0]
-            seq_id = f"Cas13_{run_id}_{len(discoveries)}"
-            discoveries.append((seq_id, protein))
-            metadata.append((seq_id, run_id, crispr_str, "0"))
-        try:
-            Path(tsv).unlink()
-        except OSError:
-            pass
+                key = protein[:200] + "|" + protein[-200:]
+                if key in seen_seqs:
+                    continue
+                seen_seqs.add(key)
+                seq_id = f"Cas13_{run_id}_{len(discoveries)}"
+                discoveries.append((seq_id, protein))
+                metadata.append((seq_id, run_id, crispr_str, "0"))
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_one_batch,
+                    i,
+                    sra_runs[i : i + run_batch_size],
+                    db_path,
+                    out_dir,
+                    ref_seqs,
+                    min_tail,
+                    require_m,
+                    magicblast_cmd,
+                    num_threads,
+                ): i
+                for i in batch_indices
+            }
+            for future in as_completed(futures):
+                for run_id, protein, crispr_str in future.result():
+                    key = protein[:200] + "|" + protein[-200:]
+                    if key in seen_seqs:
+                        continue
+                    seen_seqs.add(key)
+                    seq_id = f"Cas13_{run_id}_{len(discoveries)}"
+                    discoveries.append((seq_id, protein))
+                    metadata.append((seq_id, run_id, crispr_str, "0"))
 
     if ref_nt_path.startswith(tempfile.gettempdir()):
         try:

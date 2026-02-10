@@ -26,7 +26,8 @@ Environment:
   REFERENCE_FASTA   - Protein Cas13 reference for back-translation (default data/references/mining_refs.fasta)
   MAGICBLAST_CMD    - magic-blast executable (default magicblast)
   OUTPUT_DIR        - Where to write deep_hits_*.fasta (default data/raw_sequences)
-  NUM_THREADS       - magic-blast threads (default 4)
+  NUM_THREADS       - threads per magic-blast job (default 4)
+  MAX_WORKERS       - parallel batch jobs (default 8; total CPU ~ workers * num_threads, e.g. 32)
 """
 from __future__ import annotations
 
@@ -87,7 +88,13 @@ def main():
         "--num-threads",
         type=int,
         default=int(os.environ.get("NUM_THREADS", "4")),
-        help="magic-blast threads",
+        help="Threads per magic-blast job",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=int(os.environ.get("MAX_WORKERS", "8")),
+        help="Parallel batch jobs (total CPU ~ workers * num-threads; default 8 for 32 cores)",
     )
     parser.add_argument(
         "--dry-run",
@@ -98,7 +105,7 @@ def main():
 
     print("[*] SRA Cas13 search (Magic-BLAST, no download)")
     print(f"    SRA term: {args.sra_term[:80]}...")
-    print(f"    Max runs: {args.max_runs}, batch size: {args.batch_size}")
+    print(f"    Max runs: {args.max_runs}, batch size: {args.batch_size}, workers: {args.workers}, threads/job: {args.num_threads}")
 
     print("[*] Fetching SRA Run accessions...")
     runs = get_all_sra_runs(term=args.sra_term, max_total=args.max_runs, page_size=500)
@@ -127,6 +134,7 @@ def main():
         magicblast_cmd=args.magicblast_cmd,
         run_batch_size=args.batch_size,
         num_threads=args.num_threads,
+        max_workers=args.workers,
     )
 
     if not discoveries:

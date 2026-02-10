@@ -5,6 +5,9 @@ data/raw_sequences/*.fasta
 data/processed_enzymes/*.fasta
 data/processed_enzymes/*.json
 
+# Test temp (test_sra_blast_miner)
+_test_magicblast_tmp/
+
 # Python
 __pycache__/
 *.py[cod]
