@@ -370,45 +370,55 @@ def main():
     ))
 
     # Reference PDBs for side-by-side viewing (path relative to project root); NUC/REC from sequence
-    # Try default dir first, then fallback to data/references; also discover by filename if path check fails
+    # Dynamically discover ALL .pdb files in the references directory (supports full Cas13 family)
     refs = []
     try:
         from modules.structure_filter.functional_criteria import get_sequence_from_pdb_single_chain
     except Exception:
         get_sequence_from_pdb_single_chain = None
+
+    # Load catalog if available (from download_cas13_references.py) for subtype labels
+    _catalog_subtype: dict = {}
+    _catalog_path = references_dir / "cas13_reference_catalog.json"
+    if _catalog_path.exists():
+        try:
+            with open(_catalog_path) as _cf:
+                for _entry in json.load(_cf):
+                    pid = _entry.get("pdb_id", "").upper()
+                    sub = _entry.get("subtype", "Cas13")
+                    title = _entry.get("title", "")
+                    if pid:
+                        _catalog_subtype[pid] = f"{sub} ({pid})" if sub else pid
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Fallback labels for the original 3 if no catalog
+    _legacy_labels = {"5W1H": "Cas13a (5W1H)", "6DTD": "Cas13b (6DTD)", "6IV9": "RfxCas13d (6IV9)"}
+
     ref_dirs_to_try = [references_dir]
     alt_ref = (proj / "data/references").resolve()
     if alt_ref.exists() and alt_ref != references_dir:
         ref_dirs_to_try.append(alt_ref)
-    ref_names = [("5W1H", "Cas13a (5W1H)"), ("6DTD", "Cas13b (6DTD)"), ("6IV9", "RfxCas13d (6IV9)")]
-    for pdb_id, label in ref_names:
-        p = None
-        used_dir = None
-        for d in ref_dirs_to_try:
-            candidate = (d / f"{pdb_id}.pdb").resolve()
-            if candidate.is_file():
-                p = candidate
-                used_dir = d
-                break
-        # Fallback: discover by listing directory (handles path/cwd quirks)
-        if p is None and references_dir.is_dir():
-            for f in references_dir.iterdir():
-                if f.name.upper() == f"{pdb_id}.pdb".upper() and f.is_file():
-                    p = f.resolve()
-                    used_dir = references_dir
-                    break
-        if p is not None and p.is_file():
+
+    # Discover all PDB files across reference directories
+    seen_ids: set = set()
+    for d in ref_dirs_to_try:
+        if not d.is_dir():
+            continue
+        for pdb_file in sorted(d.glob("*.pdb")):
+            pdb_id = pdb_file.stem.upper()
+            if pdb_id in seen_ids:
+                continue
+            seen_ids.add(pdb_id)
+            label = _catalog_subtype.get(pdb_id) or _legacy_labels.get(pdb_id) or pdb_id
             try:
-                rel = p.relative_to(proj)
+                rel = pdb_file.resolve().relative_to(proj)
             except ValueError:
-                try:
-                    rel = used_dir.relative_to(proj) / f"{pdb_id}.pdb" if used_dir else Path(args.references_dir) / f"{pdb_id}.pdb"
-                except Exception:
-                    rel = Path(args.references_dir) / f"{pdb_id}.pdb"
+                rel = Path(args.references_dir) / pdb_file.name
             ref_entry = {"id": pdb_id, "label": label, "path": str(rel).replace("\\", "/")}
             if get_sequence_from_pdb_single_chain:
                 try:
-                    seq, _ = get_sequence_from_pdb_single_chain(str(p))
+                    seq, _ = get_sequence_from_pdb_single_chain(str(pdb_file.resolve()))
                     if seq:
                         nuc_rec = predict_nuc_rec_spans(seq, [])
                         ref_entry["nuc_spans"] = nuc_rec.get("nuc_spans", [])

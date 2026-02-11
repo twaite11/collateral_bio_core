@@ -116,7 +116,7 @@ def main():
     parser.add_argument(
         "--references-dir",
         default="data/structure_pipeline/references",
-        help="Directory for reference PDBs (5W1H, 6DTD, 6IV9)",
+        help="Directory for reference PDBs (all Cas13 family; run download_cas13_references.py first)",
     )
     parser.add_argument(
         "--output",
