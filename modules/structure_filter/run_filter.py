@@ -21,8 +21,9 @@ def run_full_filter(
     tm_threshold: float = 0.25,
     omegafold_repo: str = None,
     device: str = None,
-    batch_size: int = 5,
+    batch_size: int = 1,
     filter_only: bool = False,
+    max_residues: int = 0,
 ) -> int:
     """
     Run OmegaFold -> bi_lobed_hepn check -> write passed FASTA and failed log.
@@ -47,6 +48,7 @@ def run_full_filter(
             omegafold_repo=omegafold_repo,
             device=device,
             batch_size=batch_size,
+            max_residues=max_residues,
         )
     else:
         n_pdb = len(list(Path(structures_dir).glob("*.pdb")))
@@ -104,7 +106,8 @@ def main():
     parser.add_argument("--tm-threshold", type=float, default=0.25, help="Min TM-score for bi-lobed pass (default 0.25, was 0.4)")
     parser.add_argument("--omegafold-repo", default=os.environ.get("OMEGAFOLD_REPO"))
     parser.add_argument("--device", default=None)
-    parser.add_argument("--batch-size", type=int, default=5, help="Sequences per OmegaFold batch to limit VRAM")
+    parser.add_argument("--batch-size", type=int, default=1, help="Sequences per OmegaFold subprocess batch (default 1 = safest)")
+    parser.add_argument("--max-residues", type=int, default=0, help="Skip sequences longer than this (0 = no limit)")
     parser.add_argument("--filter-only", action="store_true", help="Skip OmegaFold; run TM-score + HEPN filter on existing PDBs only")
     args = parser.parse_args()
 
@@ -119,6 +122,7 @@ def main():
         device=args.device,
         batch_size=args.batch_size,
         filter_only=args.filter_only,
+        max_residues=args.max_residues,
     )
     return 0 if n >= 0 else 1
 
